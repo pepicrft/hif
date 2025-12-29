@@ -7,13 +7,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-    if (args.len < 2) {
-        try printUsage();
-        return;
-    }
-
     const SubCommand = enum { init };
     const main_params = comptime clap.parseParamsComptime(
         \\-h, --help    Display this help and exit.
@@ -35,19 +28,19 @@ pub fn main() !void {
         .terminating_positional = 0,
     }) catch |err| {
         try diag.reportToFile(.stderr(), err);
-        try printUsage();
+        try clap.helpToFile(.stdout(), clap.Help, &main_params, .{});
         return err;
     };
     defer res.deinit();
 
     if (res.args.help != 0) {
-        try printUsage();
+        try clap.helpToFile(.stdout(), clap.Help, &main_params, .{});
         return;
     }
 
     const commands = res.positionals[0];
     if (commands.len == 0) {
-        try printUsage();
+        try clap.helpToFile(.stdout(), clap.Help, &main_params, .{});
         return;
     }
     const command = commands[0];
@@ -66,15 +59,4 @@ pub fn main() !void {
             }
         },
     }
-}
-
-fn printUsage() !void {
-    try std.io.getStdOut().writer().print(
-        \\hif - agent-first version control
-        \\
-        \\Usage:
-        \\  hif init
-        \\  hif -h | --help
-        \\
-    , .{});
 }

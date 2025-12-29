@@ -84,7 +84,7 @@ pub fn parseParams(allocator: std.mem.Allocator, str: []const u8) ![]Param(Help)
 /// Takes a string and parses it into many Param(Help). Returned is a newly allocated slice
 /// containing all the parsed params. The caller is responsible for freeing the slice.
 pub fn parseParamsEx(allocator: std.mem.Allocator, str: []const u8, end: *usize) ![]Param(Help) {
-    var list = std.ArrayList(Param(Help)).init(allocator);
+    var list = ManagedArrayList(Param(Help)).init(allocator);
     errdefer list.deinit();
 
     try parseParamsIntoArrayListEx(&list, str, end);
@@ -132,7 +132,7 @@ fn countParams(str: []const u8) usize {
 /// is to small.
 pub fn parseParamsIntoSlice(slice: []Param(Help), str: []const u8) ![]Param(Help) {
     var null_alloc = std.heap.FixedBufferAllocator.init("");
-    var list = std.ArrayList(Param(Help)){
+    var list = ManagedArrayList(Param(Help)){
         .allocator = null_alloc.allocator(),
         .items = slice[0..0],
         .capacity = slice.len,
@@ -147,7 +147,7 @@ pub fn parseParamsIntoSlice(slice: []Param(Help), str: []const u8) ![]Param(Help
 /// is to small.
 pub fn parseParamsIntoSliceEx(slice: []Param(Help), str: []const u8, end: *usize) ![]Param(Help) {
     var null_alloc = std.heap.FixedBufferAllocator.init("");
-    var list = std.ArrayList(Param(Help)){
+    var list = ManagedArrayList(Param(Help)){
         .allocator = null_alloc.allocator(),
         .items = slice[0..0],
         .capacity = slice.len,
@@ -158,13 +158,13 @@ pub fn parseParamsIntoSliceEx(slice: []Param(Help), str: []const u8, end: *usize
 }
 
 /// Takes a string and parses it into many Param(Help), which are appended onto `list`.
-pub fn parseParamsIntoArrayList(list: *std.ArrayList(Param(Help)), str: []const u8) !void {
+pub fn parseParamsIntoArrayList(list: *ManagedArrayList(Param(Help)), str: []const u8) !void {
     var end: usize = undefined;
     return parseParamsIntoArrayListEx(list, str, &end);
 }
 
 /// Takes a string and parses it into many Param(Help), which are appended onto `list`.
-pub fn parseParamsIntoArrayListEx(list: *std.ArrayList(Param(Help)), str: []const u8, end: *usize) !void {
+pub fn parseParamsIntoArrayListEx(list: *ManagedArrayList(Param(Help)), str: []const u8, end: *usize) !void {
     var i: usize = 0;
     while (i != str.len) {
         var end_of_this: usize = undefined;
@@ -2147,3 +2147,4 @@ pub const v1 = @This();
 pub const v2 = @import("clap/v2.zig");
 
 const std = @import("std");
+const ManagedArrayList = std.array_list.Managed;

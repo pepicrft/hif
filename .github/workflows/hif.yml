@@ -14,12 +14,12 @@ jobs:
         target:
           - x86_64-linux-gnu
           - aarch64-linux-gnu
-          - i386-linux-gnu
+          - x86-linux-gnu
           - x86_64-macos
           - aarch64-macos
           - x86_64-windows-gnu
           - aarch64-windows-gnu
-          - i386-windows-gnu
+          - x86-windows-gnu
           - x86_64-freebsd
           - aarch64-freebsd
           - wasm32-wasi

@@ -31,16 +31,12 @@
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
-    .dependencies = .{
-        .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/refs/heads/v2.tar.gz",
-            .hash = "clap-0.7.0-AAAAAG3KAgBlCKuqK1QMY_Oq3Fax2J4qNeRx5pbGxnHa",
-        },
-    },
+    .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "vendor",
         // For example...
         //"LICENSE",
         //"README.md",

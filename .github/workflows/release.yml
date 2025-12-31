@@ -107,11 +107,11 @@ jobs:
         run: |
           mkdir -p dist
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            cp zig-out/bin/hif${{ matrix.extension }} dist/${{ matrix.artifact }}${{ matrix.extension }}
-            cd dist && zip ${{ matrix.artifact }}.zip ${{ matrix.artifact }}${{ matrix.extension }}
+            cp zig-out/bin/hif${{ matrix.extension }} dist/hif${{ matrix.extension }}
+            cd dist && zip ${{ matrix.artifact }}.zip hif${{ matrix.extension }}
           else
-            cp zig-out/bin/hif dist/${{ matrix.artifact }}
-            cd dist && tar -czvf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+            cp zig-out/bin/hif dist/hif
+            cd dist && tar -czvf ${{ matrix.artifact }}.tar.gz hif
           fi
 
       - name: Upload artifact

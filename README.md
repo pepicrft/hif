@@ -32,6 +32,28 @@ A **patch** is the fundamental unit of work. It contains:
 
 No commits. No branches. No PRs. Just patches.
 
+## Installation
+
+### Using mise (recommended)
+
+```bash
+mise use -g github:pepicrft/hif
+```
+
+### Download from GitHub Releases
+
+Pre-built binaries are available for Linux, macOS, and Windows (x86_64 and aarch64) on the [releases page](https://github.com/pepicrft/hif/releases).
+
+### Build from source
+
+Requires [Zig](https://ziglang.org/) 0.15.2+:
+
+```bash
+git clone https://github.com/pepicrft/hif.git
+cd hif
+zig build -Doptimize=ReleaseFast
+```
+
 ## Status
 
 This project is in the early design phase. See [DESIGN.md](DESIGN.md) for architecture decisions.

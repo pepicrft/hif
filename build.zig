@@ -65,7 +65,30 @@ pub fn build(b: *std.Build) void {
         run_step.dependOn(&run_cmd.step);
     }
 
-    // Unit tests for lib
+    // Test step - runs all unit tests
+    const test_step = b.step("test", "Run unit tests");
+
+    // Unit tests for uuid module
+    const uuid_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/uuid.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(uuid_tests).step);
+
+    // Unit tests for session module
+    const session_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/session.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(session_tests).step);
+
+    // Unit tests for root module (lib entry point)
     const lib_unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
@@ -73,9 +96,9 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+    test_step.dependOn(&b.addRunArtifact(lib_unit_tests).step);
 
-    // Unit tests for exe
+    // Unit tests for main (CLI)
     const exe_unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
@@ -87,9 +110,5 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
+    test_step.dependOn(&b.addRunArtifact(exe_unit_tests).step);
 }

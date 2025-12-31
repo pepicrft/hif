@@ -1,7 +1,11 @@
 //! hif library entry points.
 const std = @import("std");
 
+pub const uuid = @import("uuid.zig");
 pub const session = @import("session.zig");
+
+// Re-export for convenience
+pub const Uuid = uuid.Uuid;
 
 pub const InitResult = enum {
     created,

@@ -5,6 +5,7 @@ const hif = @import("hif");
 const App = yazap.App;
 const Arg = yazap.Arg;
 
+/// Simple stdout printing helper.
 fn print(comptime fmt: []const u8, args: anytype) void {
     const stdout = std.fs.File.stdout();
     var buf: [4096]u8 = undefined;
@@ -13,8 +14,7 @@ fn print(comptime fmt: []const u8, args: anytype) void {
 }
 
 fn printStr(str: []const u8) void {
-    const stdout = std.fs.File.stdout();
-    stdout.writeAll(str) catch {};
+    std.fs.File.stdout().writeAll(str) catch {};
 }
 
 pub fn main() !void {
@@ -46,11 +46,7 @@ pub fn main() !void {
     };
 
     if (matches.subcommandMatches("init")) |_| {
-        const result = try hif.initRepo(allocator, ".hif");
-        switch (result) {
-            .created => printStr("Initialized empty hif repository in .hif\n"),
-            .already_exists => printStr("hif repository already exists in .hif\n"),
-        }
+        runInit(allocator);
         return;
     }
 
@@ -60,16 +56,7 @@ pub fn main() !void {
                 printStr("Error: goal is required\n");
                 return;
             };
-
-            const result = hif.session.start(allocator, ".hif", goal, "local") catch |err| {
-                print("Error starting session: {}\n", .{err});
-                return;
-            };
-
-            switch (result.result) {
-                .created => print("Started session {s}\nGoal: {s}\n", .{ result.id, goal }),
-                .already_in_session => printStr("Error: already in a session. Land or abandon it first.\n"),
-            }
+            runSessionStart(allocator, goal);
             return;
         }
 
@@ -78,4 +65,34 @@ pub fn main() !void {
     }
 
     try app.displayHelp();
+}
+
+fn runInit(allocator: std.mem.Allocator) void {
+    const result = hif.initRepo(allocator, ".hif") catch |err| {
+        print("Error initializing repository: {}\n", .{err});
+        return;
+    };
+    switch (result) {
+        .created => printStr("Initialized empty hif repository in .hif\n"),
+        .already_exists => printStr("hif repository already exists in .hif\n"),
+    }
+}
+
+fn runSessionStart(allocator: std.mem.Allocator, goal: []const u8) void {
+    const result = hif.session.start(allocator, ".hif", goal, "local") catch |err| {
+        switch (err) {
+            hif.session.StartError.AlreadyInSession => {
+                printStr("Error: already in a session. Land or abandon it first.\n");
+            },
+            hif.session.StartError.OutOfMemory => {
+                printStr("Error: out of memory\n");
+            },
+            hif.session.StartError.FileSystemError => {
+                printStr("Error: file system error. Is this a hif repository?\n");
+            },
+        }
+        return;
+    };
+
+    print("Started session {s}\nGoal: {s}\n", .{ result.id, goal });
 }

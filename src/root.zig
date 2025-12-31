@@ -1,6 +1,8 @@
 //! hif library entry points.
 const std = @import("std");
 
+pub const session = @import("session.zig");
+
 pub const InitResult = enum {
     created,
     already_exists,

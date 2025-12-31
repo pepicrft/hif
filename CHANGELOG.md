@@ -1,6 +1,11 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.2.0] - 2025-12-31
+
+### Feat
+
+- Replace patches with sessions as core concept ([94b93c1](https://github.com/pepicrft/hif/commit/94b93c1ccc3f29046bc0991c8024cf7887d10fa7))
 ## [0.1.3] - 2025-12-31
 
 ### Docs
@@ -22,6 +27,7 @@ All notable changes to this project will be documented in this file.
 ### Feat
 
 - Add automated release workflow with git-cliff ([d99af8b](https://github.com/pepicrft/hif/commit/d99af8b6af83b9d430dccb2dce71d1fdc45d43f8))
+[0.2.0]: https://github.com/pepicrft/hif/compare/0.1.3..0.2.0
 [0.1.3]: https://github.com/pepicrft/hif/compare/0.1.2..0.1.3
 [0.1.2]: https://github.com/pepicrft/hif/compare/0.1.1..0.1.2
 [0.1.1]: https://github.com/pepicrft/hif/compare/0.1.0..0.1.1

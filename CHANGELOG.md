@@ -1,6 +1,12 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.1.3] - 2025-12-31
+
+### Docs
+
+- Make tagline bold ([d84a3ce](https://github.com/pepicrft/hif/commit/d84a3ced03ac0605933fdbb7bda8c7bd106048e2))
+- Simplify README with clearer model explanation ([a90ff53](https://github.com/pepicrft/hif/commit/a90ff53b5e8849dde6cc5e3626740a175e404bca))
 ## [0.1.2] - 2025-12-31
 
 ### Fix
@@ -16,6 +22,7 @@ All notable changes to this project will be documented in this file.
 ### Feat
 
 - Add automated release workflow with git-cliff ([d99af8b](https://github.com/pepicrft/hif/commit/d99af8b6af83b9d430dccb2dce71d1fdc45d43f8))
+[0.1.3]: https://github.com/pepicrft/hif/compare/0.1.2..0.1.3
 [0.1.2]: https://github.com/pepicrft/hif/compare/0.1.1..0.1.2
 [0.1.1]: https://github.com/pepicrft/hif/compare/0.1.0..0.1.1
 

@@ -5,48 +5,52 @@
 
 > Git tracks what. hif tracks why.
 
-A version control system designed for an agent-first world. Where Git captures snapshots, hif captures the trajectory of reasoning - not just where you ended up, but the path you took.
+A version control system designed for an agent-first world. Where Git captures snapshots, hif captures reasoning - not just where you ended up, but the path you took.
 
-## The problem
+## 🤔 The problem
 
-Git is snapshot-based. A commit is a frozen picture of your repository at a specific moment. Everything that happens between commits is invisible: the iterations, the reasoning, the back-and-forth with an agent that led to that final state.
+Git is snapshot-based. A commit is a frozen picture of your repository. Everything between commits is invisible: the iterations, the reasoning, the back-and-forth with an agent that led to that final state.
 
-This worked for human collaboration. We make changes, think about them, then crystallize the result into a commit. But agents work differently. They explore, backtrack, try alternatives, and reason through decisions. Git can't capture any of that.
+This worked for human collaboration. We think, then commit. But agents work differently - they explore, backtrack, try alternatives, and reason through decisions. Git can't capture any of that.
 
-## The model
+## 💡 The model
 
-hif replaces git concepts with simpler primitives:
+hif has one concept: **patches**.
 
-| Git | hif |
-|-----|-----|
-| Commits | Operation stream (continuous) |
-| Branches | Patches (unit of work with intent) |
-| PRs | Patches include conversation and review |
-| Blame | Provenance (why, how, what reasoning) |
-
-A **patch** is the fundamental unit of work. It contains:
-- Intent (what you're trying to do)
-- Decisions (why things were done a certain way)
-- Conversation (discussion between agents and humans)
-- File changes (the actual modifications)
+A patch is a unit of work that captures:
+- 🎯 **Intent** - what you're trying to do
+- 🧠 **Decisions** - why things were done a certain way
+- 💬 **Conversation** - discussion between agents and humans
+- 📝 **Changes** - the actual file modifications
 
 No commits. No branches. No PRs. Just patches.
 
-## Installation
+```
+Patch: "Add authentication"
+├── Intent: Add login/logout to the API
+├── Decisions
+│   ├── "Using JWT because human specified"
+│   └── "Put auth middleware in /middleware - existing pattern"
+├── Conversation
+│   ├── Human: "We need login with email"
+│   ├── Agent: "Should I use JWT or sessions?"
+│   └── Human: "JWT"
+└── Changes: [file operations...]
+```
 
-### Using mise (recommended)
+## 📦 Installation
+
+**Using [mise](https://mise.jdx.dev) (recommended):**
 
 ```bash
 mise use -g github:pepicrft/hif
 ```
 
-### Download from GitHub Releases
+**Download from [releases](https://github.com/pepicrft/hif/releases):**
 
-Pre-built binaries are available for Linux, macOS, and Windows (x86_64 and aarch64) on the [releases page](https://github.com/pepicrft/hif/releases).
+Pre-built binaries for Linux, macOS, and Windows (x86_64 and aarch64).
 
-### Build from source
-
-Requires [Zig](https://ziglang.org/) 0.15.2+:
+**Build from source** (requires [Zig](https://ziglang.org/) 0.15.2+):
 
 ```bash
 git clone https://github.com/pepicrft/hif.git
@@ -54,14 +58,10 @@ cd hif
 zig build -Doptimize=ReleaseFast
 ```
 
-## Status
-
-This project is in the early design phase. See [DESIGN.md](DESIGN.md) for architecture decisions.
-
-## Forge
+## 🌐 Forge
 
 hif is designed to work with [micelio.dev](https://micelio.dev), a forge built for agent collaboration. But hif works fully offline - the forge is optional.
 
-## License
+## 📄 License
 
 GPL-2.0, following git's lineage.

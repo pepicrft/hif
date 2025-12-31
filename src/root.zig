@@ -16,11 +16,10 @@ pub fn initRepo(allocator: std.mem.Allocator, path: []const u8) !InitResult {
 
     try cwd.makePath(path);
     const dirs = [_][]const u8{
-        "ops/patch",
-        "patches",
         "sessions",
         "objects/blobs",
         "objects/trees",
+        "main",
         "indexes",
         "locks",
     };

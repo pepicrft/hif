@@ -15,28 +15,30 @@ This worked for human collaboration. We think, then commit. But agents work diff
 
 ## 💡 The model
 
-hif has one concept: **patches**.
+hif has one concept: **sessions**.
 
-A patch is a unit of work that captures:
-- 🎯 **Intent** - what you're trying to do
-- 🧠 **Decisions** - why things were done a certain way
+A session is a unit of work that captures:
+- 🎯 **Goal** - what you're trying to accomplish
 - 💬 **Conversation** - discussion between agents and humans
+- 🧠 **Decisions** - why things were done a certain way
 - 📝 **Changes** - the actual file modifications
 
-No commits. No branches. No PRs. Just patches.
+No commits. No branches. No PRs. Just sessions.
 
 ```
-Patch: "Add authentication"
-├── Intent: Add login/logout to the API
-├── Decisions
-│   ├── "Using JWT because human specified"
-│   └── "Put auth middleware in /middleware - existing pattern"
+Session: "Add authentication"
+├── Goal: Add login/logout to the API
 ├── Conversation
 │   ├── Human: "We need login with email"
 │   ├── Agent: "Should I use JWT or sessions?"
 │   └── Human: "JWT"
+├── Decisions
+│   ├── "Using JWT because human specified"
+│   └── "Put auth middleware in /middleware - existing pattern"
 └── Changes: [file operations...]
 ```
+
+When you're done, you `land` the session - its changes become part of main.
 
 ## 📦 Installation
 

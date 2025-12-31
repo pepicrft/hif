@@ -1,5 +1,8 @@
 # hif
 
+> [!WARNING]
+> This project is a work in progress and is not ready for production use.
+
 > Git tracks what. hif tracks why.
 
 A version control system designed for an agent-first world. Where Git captures snapshots, hif captures the trajectory of reasoning - not just where you ended up, but the path you took.

@@ -16,8 +16,8 @@ pub fn build(b: *std.Build) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
-    const clap_mod = b.addModule("clap", .{
-        .root_source_file = b.path("vendor/zig-clap/clap.zig"),
+    const yazap_mod = b.addModule("yazap", .{
+        .root_source_file = b.path("vendor/yazap/src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -84,7 +84,7 @@ pub fn build(b: *std.Build) void {
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
                 .{ .name = "hif", .module = mod },
-                .{ .name = "clap", .module = clap_mod },
+                .{ .name = "yazap", .module = yazap_mod },
             },
         }),
     });

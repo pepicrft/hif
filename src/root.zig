@@ -8,9 +8,10 @@ pub const InitResult = enum {
 
 pub fn initRepo(allocator: std.mem.Allocator, path: []const u8) !InitResult {
     const cwd = std.fs.cwd();
-    if (cwd.openDir(path, .{}) catch null) |dir| {
-        dir.close();
+    if (cwd.openDir(path, .{})) |_| {
         return .already_exists;
+    } else |_| {
+        // Directory doesn't exist, continue to create it
     }
 
     try cwd.makePath(path);

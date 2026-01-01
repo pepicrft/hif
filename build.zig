@@ -78,6 +78,16 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(hash_tests).step);
 
+    // Core HLC module tests
+    const hlc_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/core/hlc.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(hlc_tests).step);
+
     // Unit tests for lib
     const lib_unit_tests = b.addTest(.{
         .root_module = b.createModule(.{

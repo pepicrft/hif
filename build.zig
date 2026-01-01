@@ -88,6 +88,16 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(hlc_tests).step);
 
+    // Core Bloom filter module tests
+    const bloom_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/core/bloom.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(bloom_tests).step);
+
     // Unit tests for lib
     const lib_unit_tests = b.addTest(.{
         .root_module = b.createModule(.{

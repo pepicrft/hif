@@ -1,18 +1,20 @@
 //! hif library entry points.
 //!
 //! This is the main entry point for the hif library, providing access to:
-//! - Core algorithms (hash, hlc) via their respective namespaces
+//! - Core algorithms (hash, hlc, bloom) via their respective namespaces
 
 const std = @import("std");
 
 // Core algorithms
 pub const hash = @import("core/hash.zig");
 pub const hlc = @import("core/hlc.zig");
+pub const bloom = @import("core/bloom.zig");
 
 // Re-export commonly used types for convenience
 pub const Hash = hash.Hash;
 pub const HLC = hlc.HLC;
 pub const Clock = hlc.Clock;
+pub const Bloom = bloom.Bloom;
 
 pub const InitResult = enum {
     created,

@@ -171,16 +171,6 @@ void hif_hlc_to_bytes(const HifHLC* ts, uint8_t out[16]);
 void hif_hlc_from_bytes(const uint8_t data[16], HifHLC* out);
 
 /* ============================================================================
- * Repository
- * ============================================================================ */
-
-/**
- * Initialize a new hif repository at the given path.
- * @return 0 on success (created), 1 if already exists, 2 on error
- */
-int hif_init_repo(const uint8_t* path, size_t path_len);
-
-/* ============================================================================
  * Version Information
  * ============================================================================ */
 

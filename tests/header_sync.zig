@@ -41,8 +41,6 @@ const expected_exports = [_][]const u8{
     "hif_hlc_compare",
     "hif_hlc_to_bytes",
     "hif_hlc_from_bytes",
-    // Repository
-    "hif_init_repo",
 };
 
 // Embed the header file (build.zig sets up the include path)

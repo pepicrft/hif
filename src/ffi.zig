@@ -232,24 +232,6 @@ export fn hif_hlc_from_bytes(data: *const [16]u8, out: *HifHLC) void {
 }
 
 // ============================================================================
-// Repository Initialization
-// ============================================================================
-
-/// Initialize a new hif repository at the given path.
-/// Returns 0 on success (created), 1 if already exists, 2 on error.
-export fn hif_init_repo(path_ptr: [*]const u8, path_len: usize) c_int {
-    const allocator = std.heap.c_allocator;
-    const path = path_ptr[0..path_len];
-
-    const result = hif.initRepo(allocator, path) catch return 2;
-
-    return switch (result) {
-        .created => 0,
-        .already_exists => 1,
-    };
-}
-
-// ============================================================================
 // Tests
 // ============================================================================
 

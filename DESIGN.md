@@ -138,6 +138,75 @@ hif has three components that work together:
 - Not O(n) scan of all landed sessions
 - Enables 100k+ landings/day
 
+**Unbundled architecture (like FoundationDB):**
+- Separate control plane from data plane
+- Each subsystem scales independently
+- Fast recovery via deterministic replay
+
+---
+
+## Unbundled Architecture
+
+Inspired by [FoundationDB's unbundled design](https://www.micahlerner.com/2021/06/12/foundationdb-a-distributed-unbundled-transactional-key-value-store.html),
+hif separates into independently scalable subsystems:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        CONTROL PLANE                             │
+│                  (strong consistency, low volume)                │
+│                                                                 │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
+│   │    Auth     │  │   Project   │  │   Bloom     │            │
+│   │   (SQLite)  │  │  Metadata   │  │   Rollup    │            │
+│   │             │  │             │  │  Scheduler  │            │
+│   │ Users       │  │ Settings    │  │             │            │
+│   │ Tokens      │  │ Permissions │  │ Background  │            │
+│   │ Permissions │  │ Webhooks    │  │ job queue   │            │
+│   └─────────────┘  └─────────────┘  └─────────────┘            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ (separate scaling)
+                              │
+┌─────────────────────────────────────────────────────────────────┐
+│                         DATA PLANE                               │
+│                 (high throughput, eventually consistent)         │
+│                                                                 │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
+│   │   Landing   │  │   Session   │  │    Blob     │            │
+│   │   System    │  │    Store    │  │    Store    │            │
+│   │             │  │             │  │             │            │
+│   │ Head file   │  │ Session     │  │ Trees       │            │
+│   │ Landing log │  │ state       │  │ Blobs       │            │
+│   │ Bloom index │  │ Operations  │  │ Content-    │            │
+│   │             │  │ Conversation│  │ addressed   │            │
+│   └─────────────┘  └─────────────┘  └─────────────┘            │
+│         │                │                │                     │
+│         └────────────────┴────────────────┘                     │
+│                          │                                      │
+│                          ▼                                      │
+│                    S3 (unified)                                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why this matters:**
+- Control plane can use SQLite (simple, consistent)
+- Data plane uses S3 directly (infinite scale)
+- Landing system can scale independently of blob storage
+- Session store can scale independently of landing
+- Each subsystem has its own failure modes and recovery
+
+**Recovery (from FoundationDB's insight):**
+> "The decoupling of logging and the determinism in transaction orders
+> greatly simplify recovery, allowing unusually quick recovery time."
+
+For hif:
+- Landing log is our WAL
+- Recovery = read head + replay landing log
+- Deterministic ordering means any agent can recover
+- S3's strong consistency means no distributed consensus needed
+
 ---
 
 ## libhif-core
@@ -1054,6 +1123,47 @@ Speed: 100x faster than JSON parse
 Inspired by [TigerBeetle](https://tigerbeetle.com/) and [FoundationDB](https://apple.github.io/foundationdb/testing.html),
 hif uses deterministic simulation to test decades of failures in hours.
 
+### Lesson from FoundationDB: Build Simulation First
+
+FoundationDB spent their **first two weeks** building their simulation framework (Flow)
+before writing any database code. Their insight:
+
+> "You can't add deterministic simulation to an existing system.
+> You have to design for it from day one."
+
+This means hif must:
+1. Abstract ALL non-determinism behind interfaces from the start
+2. Build the simulator before the forge
+3. Run simulation tests in CI from day one
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Abstraction Layer (Day 1)                     │
+│                                                                 │
+│   // All I/O goes through interfaces                            │
+│   trait ObjectStore {                                           │
+│       fn get(key) -> Result<Bytes>;                             │
+│       fn put(key, data, condition) -> Result<()>;               │
+│       fn delete(key) -> Result<()>;                             │
+│   }                                                             │
+│                                                                 │
+│   trait Clock {                                                 │
+│       fn now() -> Timestamp;                                    │
+│       fn tick(duration);  // For simulation                     │
+│   }                                                             │
+│                                                                 │
+│   trait Random {                                                │
+│       fn next_u64() -> u64;  // Seeded for determinism          │
+│   }                                                             │
+│                                                                 │
+│   // Production: real S3, system clock, crypto PRNG             │
+│   // Simulation: in-memory store, tick clock, seeded PRNG       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Simulator Architecture
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    VOPR-style Simulator                          │
@@ -1078,6 +1188,7 @@ hif uses deterministic simulation to test decades of failures in hours.
 │   - Clock skew between agents                                   │
 │   - Agent crashes and restarts                                  │
 │   - Slow S3 responses (latency injection)                       │
+│   - Partial failures (write succeeds, agent crashes)            │
 │                                                                 │
 │   Determinism:                                                  │
 │   - Single-threaded execution                                   │
@@ -1092,19 +1203,51 @@ hif uses deterministic simulation to test decades of failures in hours.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**What we verify:**
+### Stress Test Patterns (from FoundationDB)
+
+**"Swizzle Clogging"** - finds subtle ordering bugs:
+```
+1. Randomly select N agents
+2. Sequentially stop their S3 connections
+3. Let them queue operations
+4. Unclog in random order
+5. Verify all operations complete correctly
+```
+
+**"Crash Loop"** - finds recovery bugs:
+```
+1. Start landing operation
+2. Crash agent at random point (before/during/after S3 write)
+3. Restart agent
+4. Verify: either landing completed or can be retried
+5. Verify: no duplicate landings, no data loss
+```
+
+**"Clock Skew"** - finds HLC bugs:
+```
+1. Skew agent clocks by random amounts (-5s to +5s)
+2. Perform landings from multiple agents
+3. Verify: HLC ordering is consistent
+4. Verify: no causality violations
+```
+
+### What We Verify
+
 - Landing atomicity (all-or-nothing)
 - Conflict detection correctness (no false negatives)
-- Bloom rollup consistency
-- Head never goes backward
+- Bloom rollup consistency (rollups match individual blooms)
+- Head monotonicity (position never decreases)
 - No data loss under any failure sequence
 - Eventual consistency of landing log
+- Recovery correctness (can always rebuild from S3)
+- HLC causality (if A caused B, HLC(A) < HLC(B))
 
-**Implementation:**
-- All I/O abstracted behind interfaces
-- Real mode: actual S3/network/clock
-- Sim mode: in-memory fakes with fault injection
-- Same binary, different runtime configuration
+### Implementation Priority
+
+From FoundationDB's experience:
+1. **Week 1-2**: Build abstraction layer and basic simulator
+2. **Week 3+**: Build features with simulation tests from day one
+3. **Ongoing**: Run thousands of simulations nightly in CI
 
 ---
 

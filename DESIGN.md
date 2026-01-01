@@ -19,7 +19,7 @@ hif is designed for this reality. It takes lessons from [Google's Piper/CitC](ht
 - **Agent-native** - sessions capture goal, reasoning, and changes together
 - **Infinite scale** - billions of files, millions of commits, thousands of concurrent agents
 - **Lazy everything** - fetch only what you need, when you need it
-- **Operations scale with your work**, not repository size
+- **Operations scale with your work**, not project size
 
 ---
 
@@ -697,7 +697,8 @@ NFS operations:
 ```bash
 # Setup
 hif auth login                    # Authenticate with forge
-hif clone <repo>                  # Initialize local state
+hif project create <name>         # Create new project on forge
+hif clone <project>               # Clone project locally
 
 # Sessions
 hif session start "goal"          # Start new session
@@ -735,7 +736,7 @@ hif goto @position:N              # Specific position
 hif goto @session:<id>            # Session's state
 
 # Watching
-hif watch                         # Stream repo events
+hif watch                         # Stream project events
 hif watch --session <id>          # Watch specific session
 ```
 
@@ -747,7 +748,7 @@ hif watch --session <id>          # Watch specific session
 
 | Metric | Target |
 |--------|--------|
-| Files per repo | 100M+ |
+| Files per project | 100M+ |
 | Landings per day | 100,000+ |
 | Concurrent sessions | 10,000+ |
 | Concurrent agents | 1,000+ |
@@ -939,7 +940,7 @@ zig-out/
 
 ### Offline Mode
 
-Should small repos work without a forge?
+Should small projects work without a forge?
 - Useful for: personal projects, air-gapped environments
 - Cost: two code paths to maintain
 

@@ -9,12 +9,14 @@ const std = @import("std");
 pub const hash = @import("core/hash.zig");
 pub const hlc = @import("core/hlc.zig");
 pub const bloom = @import("core/bloom.zig");
+pub const tree = @import("core/tree.zig");
 
 // Re-export commonly used types for convenience
 pub const Hash = hash.Hash;
 pub const HLC = hlc.HLC;
 pub const Clock = hlc.Clock;
 pub const Bloom = bloom.Bloom;
+pub const Tree = tree.Tree;
 
 pub const InitResult = enum {
     created,

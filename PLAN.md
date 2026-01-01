@@ -399,10 +399,12 @@ Single-threaded landing without conflict detection.
 
 - [x] Project initialized with Zig 0.15
 - [x] `core/hash.zig` - Blake3 hashing
-- [ ] `core/bloom.zig` - Bloom filters
-- [ ] `core/hlc.zig` - Hybrid Logical Clock
-- [ ] `core/tree.zig` - Prolly trees
+- [x] `core/bloom.zig` - Bloom filters for conflict detection
+- [x] `core/hlc.zig` - Hybrid Logical Clock for distributed timestamps
+- [x] `core/tree.zig` - Prolly trees for directory structures
+- [ ] `core/c_api.zig` - C ABI exports
+- [ ] `include/hif_core.h` - Generated C header
 - [ ] Forge skeleton
 - [ ] Basic CLI commands
 
-**Next:** Implement bloom.zig and hlc.zig to complete Phase 1.1
+**Next:** Complete Phase 1.1 with c_api.zig and hif_core.h

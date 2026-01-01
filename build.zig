@@ -52,6 +52,9 @@ pub fn build(b: *std.Build) void {
         });
         ffi_lib.linkLibC();
         b.installArtifact(ffi_lib);
+
+        // Install the C header file
+        b.installFile("include/hif_core.h", "include/hif_core.h");
     }
 
     // Run step
@@ -155,4 +158,19 @@ pub fn build(b: *std.Build) void {
         }),
     });
     test_step.dependOn(&b.addRunArtifact(integration_tests).step);
+
+    // Header sync tests (verify C header matches FFI exports)
+    const header_sync_mod = b.createModule(.{
+        .root_source_file = b.path("tests/header_sync.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    // Add include directory so @embedFile can find hif_core.h
+    header_sync_mod.addAnonymousImport("hif_core.h", .{
+        .root_source_file = b.path("include/hif_core.h"),
+    });
+    const header_sync_tests = b.addTest(.{
+        .root_module = header_sync_mod,
+    });
+    test_step.dependOn(&b.addRunArtifact(header_sync_tests).step);
 }

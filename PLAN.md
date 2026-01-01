@@ -401,13 +401,17 @@ Single-threaded landing without conflict detection.
 - [x] `core/hash.zig` - Blake3 hashing
 - [x] `core/bloom.zig` - Bloom filters for conflict detection
 - [x] `core/hlc.zig` - Hybrid Logical Clock for distributed timestamps
-- [x] `core/tree.zig` - Prolly trees for directory structures
-- [ ] `core/c_api.zig` - C ABI exports
-- [ ] `include/hif_core.h` - Generated C header
+- [x] `core/tree.zig` - B+ tree for directory structures
+- [x] `src/ffi.zig` - C ABI exports for all core modules
+- [x] `include/hif_core.h` - C header with documentation
+- [x] Header sync tests - Verify header matches FFI exports
+- [x] Integration tests - End-to-end workflow tests
 - [ ] Forge skeleton
 - [ ] Basic CLI commands
 
-**Next:** Complete Phase 1.1 with c_api.zig and hif_core.h
+**Phase 1.1 Complete!**
+
+**Next:** Phase 1.2 - Forge Skeleton (separate repo)
 
 ---
 

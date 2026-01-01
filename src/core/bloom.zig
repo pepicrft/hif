@@ -120,7 +120,7 @@ pub const Bloom = struct {
 
     /// Add a pre-computed hash to the bloom filter.
     pub fn addHash(self: *Bloom, h: *const hash.Hash) void {
-        const m = self.bits.len * 8;
+        const m: u64 = self.bits.len * 8;
 
         // Use double hashing: h_i(x) = h1(x) + i * h2(x) mod m
         // We split the 256-bit hash into two 64-bit values
@@ -128,7 +128,7 @@ pub const Bloom = struct {
         const h2 = std.mem.readInt(u64, h[8..16], .little);
 
         for (0..self.num_hashes) |i| {
-            const bit_idx = (h1 +% @as(u64, @intCast(i)) *% h2) % m;
+            const bit_idx: usize = @intCast((h1 +% @as(u64, @intCast(i)) *% h2) % m);
             const byte_idx = bit_idx / 8;
             const bit_offset: u3 = @intCast(bit_idx % 8);
             self.bits[byte_idx] |= @as(u8, 1) << bit_offset;
@@ -147,13 +147,13 @@ pub const Bloom = struct {
 
     /// Check if a pre-computed hash might be in the bloom filter.
     pub fn mayContainHash(self: *const Bloom, h: *const hash.Hash) bool {
-        const m = self.bits.len * 8;
+        const m: u64 = self.bits.len * 8;
 
         const h1 = std.mem.readInt(u64, h[0..8], .little);
         const h2 = std.mem.readInt(u64, h[8..16], .little);
 
         for (0..self.num_hashes) |i| {
-            const bit_idx = (h1 +% @as(u64, @intCast(i)) *% h2) % m;
+            const bit_idx: usize = @intCast((h1 +% @as(u64, @intCast(i)) *% h2) % m);
             const byte_idx = bit_idx / 8;
             const bit_offset: u3 = @intCast(bit_idx % 8);
             if ((self.bits[byte_idx] & (@as(u8, 1) << bit_offset)) == 0) {

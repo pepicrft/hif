@@ -24,11 +24,13 @@ pub fn main() !void {
 
     if (matches.subcommandMatches("init")) |_| {
         const result = try hif.initRepo(allocator, ".hif");
-        const stdout = std.fs.File.stdout().deprecatedWriter();
+        var buf: [256]u8 = undefined;
+        var stdout = std.fs.File.stdout().writer(&buf);
         switch (result) {
-            .created => try stdout.writeAll("Initialized empty hif repository in .hif\n"),
-            .already_exists => try stdout.writeAll("hif repository already exists in .hif\n"),
+            .created => try stdout.interface.writeAll("Initialized empty hif repository in .hif\n"),
+            .already_exists => try stdout.interface.writeAll("hif repository already exists in .hif\n"),
         }
+        try stdout.interface.flush();
         return;
     }
 

@@ -85,7 +85,11 @@ pub const TreeEntry = struct {
     hash: Hash,
 };
 
-/// Encode a length as a variable-length integer.
+/// Encode a length as a variable-length integer (varint).
+///
+/// Uses 7 bits per byte with the high bit as a continuation flag.
+/// Maximum encoded length is 10 bytes (for 64-bit values), which fits
+/// in the provided buffer. A 64-bit value requires at most ceil(64/7) = 10 bytes.
 fn encodeLength(len: usize, buf: *[10]u8) []const u8 {
     var value = len;
     var i: usize = 0;
@@ -96,6 +100,10 @@ fn encodeLength(len: usize, buf: *[10]u8) []const u8 {
         i += 1;
     }
     buf[i] = @intCast(value);
+
+    // Safety: i < 10 is guaranteed since a 64-bit value encodes to at most 10 bytes
+    std.debug.assert(i < 10);
+
     return buf[0 .. i + 1];
 }
 

@@ -399,10 +399,50 @@ Single-threaded landing without conflict detection.
 
 - [x] Project initialized with Zig 0.15
 - [x] `core/hash.zig` - Blake3 hashing
-- [ ] `core/bloom.zig` - Bloom filters
-- [ ] `core/hlc.zig` - Hybrid Logical Clock
-- [ ] `core/tree.zig` - Prolly trees
+- [x] `core/bloom.zig` - Bloom filters for conflict detection
+- [x] `core/hlc.zig` - Hybrid Logical Clock for distributed timestamps
+- [x] `core/tree.zig` - Prolly trees for directory structures
+- [ ] `core/c_api.zig` - C ABI exports
+- [ ] `include/hif_core.h` - Generated C header
 - [ ] Forge skeleton
 - [ ] Basic CLI commands
 
-**Next:** Implement bloom.zig and hlc.zig to complete Phase 1.1
+**Next:** Complete Phase 1.1 with c_api.zig and hif_core.h
+
+---
+
+## Testing Strategy
+
+### Unit Tests
+Each core module includes comprehensive unit tests covering:
+- Normal operation paths
+- Edge cases (empty inputs, max values, unicode)
+- Error conditions and proper error propagation
+
+### Integration Tests (Planned)
+End-to-end scenarios to be added:
+- Full session workflow: start -> edit -> land
+- Concurrent session conflict detection
+- CLI command sequences
+- FFI roundtrip from C test harness
+
+### FFI Testing
+The C API (`c_api.zig` + `hif_core.h`) will include:
+- All core module operations exposed via C ABI
+- Error message retrieval API
+- Version and capability checking
+- Test harness in C for validation
+
+---
+
+## Architecture Notes
+
+### Tree Implementation
+The current `tree.zig` uses a sorted ArrayList for simplicity:
+- O(log n) lookups via binary search
+- O(n) insertions due to re-sorting
+- Suitable for small to medium trees (< 10K entries)
+
+For large-scale repositories (100K+ files), a proper B-tree or prolly tree
+with probabilistic chunking boundaries would be needed. This is deferred
+to Phase 7 (Scale) when actual performance requirements are known.

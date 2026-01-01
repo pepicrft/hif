@@ -1,25 +1,27 @@
 # hif - Design
 
-A version control system for an agent-first world, designed for scale.
+A version control system for an agent-first world, designed for Meta/Shopify scale.
 
 ## Philosophy
 
 Git was designed for human collaboration at small-to-medium scale. But the future is different:
 
 - **Hundreds of AI agents** working concurrently on the same codebase
-- **Millions of files** in monorepos
-- **Tens of thousands of changes per day**
+- **Billions of files** in monorepos
+- **Hundreds of thousands of landings per day**
 - **Humans reviewing**, not writing most code
 
-hif is designed for this reality. It takes lessons from [Google's Piper/CitC](https://cacm.acm.org/research/why-google-stores-billions-of-lines-of-code-in-a-single-repository/) and [Meta's Sapling/EdenFS](https://engineering.fb.com/2022/11/15/open-source/sapling-source-control-scalable/), but reimagines them for an agentic world.
+hif is designed for this reality. It takes lessons from [Google's Piper](https://cacm.acm.org/research/why-google-stores-billions-of-lines-of-code-in-a-single-repository/), [Meta's Sapling](https://engineering.fb.com/2022/11/15/open-source/sapling-source-control-scalable/), [Turbopuffer](https://turbopuffer.com/blog/turbopuffer), [WarpStream](https://docs.warpstream.com/warpstream/background-information/warpstreams-architecture), and [Calvin](https://cs.yale.edu/homes/thomson/publications/calvin-sigmod12.pdf) - but reimagines them for an agentic world.
 
 **Key principles:**
 
 - **Forge-first** - the server is the source of truth, not local disk
 - **Agent-native** - sessions capture goal, reasoning, and changes together
-- **S3-first storage** - object storage scales infinitely, no database to manage
-- **Lazy everything** - fetch only what you need, when you need it
-- **Operations scale with your work**, not project size
+- **Object storage-first** - S3 is the source of truth, not a tier (like Turbopuffer)
+- **Stateless compute** - agents are stateless, can be trivially auto-scaled (like WarpStream)
+- **Binary everywhere** - no JSON, all binary formats for speed
+- **O(log n) operations** - bloom filter rollups, not linear scans
+- **Coordinator-free landing** - S3 conditional writes, not single process bottleneck
 
 ---
 
@@ -34,97 +36,104 @@ hif has three components that work together:
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │                      libhif-core (native Zig)                       │   │
 │  │   Trees · Bloom Filters · Segmented Changelog · HLC · Hash          │   │
+│  │   Binary serialization · Conflict detection                         │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                   │                                         │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐                  │
-│  │   hif CLI     │  │   hif-fs      │  │  Local Cache  │                  │
+│  │   hif CLI     │  │   hif-fs      │  │  Tiered Cache │                  │
 │  │               │  │  (Phase 2)    │  │               │                  │
-│  │ session start │  │  NFS daemon   │  │  Blob LRU     │                  │
-│  │ session land  │  │  Mount point  │  │  Tree cache   │                  │
+│  │ session start │  │  NFS daemon   │  │  RAM → SSD    │                  │
+│  │ session land  │  │  Mount point  │  │  → S3         │                  │
 │  └───────────────┘  └───────────────┘  └───────────────┘                  │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
-                                    │ HTTPS
+                                    │ gRPC
                                     │
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         FORGE (stateless compute)                            │
+│                    FORGE (stateless agents, like WarpStream)                 │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      API Servers (Fly.io / Lambda / etc.)           │   │
+│  │                      Stateless Agents (Fly.io / Lambda / K8s)       │   │
 │  │                                                                     │   │
-│  │   Auth · Session CRUD · Blob upload/download · Tree operations     │   │
-│  │   Scales horizontally, stateless                                   │   │
+│  │   Any agent can handle any request (no leader, no partitioning)    │   │
+│  │   Auth · Session CRUD · Blob streaming · Landing                   │   │
+│  │   Auto-scale based on CPU, scale to zero when idle                 │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                   │                                         │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      Landing Coordinator                            │   │
-│  │                                                                     │   │
-│  │   Serializes landings · Conflict detection · Writes to S3          │   │
-│  │   Single process, ~200 lines, stateless restart from S3            │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
+│                          S3 Conditional Writes                              │
+│                          (if-match / if-none-match)                         │
+│                                   │                                         │
+│                    No coordinator needed for landing!                       │
+│                    S3 provides atomic compare-and-swap                      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
-          ┌─────────────────────────┴─────────────────────────┐
-          │                                                   │
-          ▼                                                   ▼
-┌───────────────────────┐                         ┌───────────────────────┐
-│   SQLite + Litestream │                         │          S3           │
-│                       │                         │                       │
-│   Auth database:      │                         │   All hif data:       │
-│   - Users             │                         │   - Sessions          │
-│   - Tokens            │                         │   - Trees             │
-│   - Permissions       │                         │   - Blobs             │
-│                       │                         │   - Landed index      │
-│   Replicated to S3    │                         │                       │
-│   ~KB per user        │                         │   Infinitely scalable │
-└───────────────────────┘                         └───────────────────────┘
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         S3 (source of truth)                                 │
+│                                                                             │
+│   Like Turbopuffer: object storage-first, not tiered                        │
+│                                                                             │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│   │   Landing   │  │   Session   │  │    Tree     │  │    Blob     │       │
+│   │     Log     │  │    Store    │  │    Store    │  │    Store    │       │
+│   │             │  │             │  │             │  │             │       │
+│   │ Append-only │  │   Binary    │  │   Binary    │  │   zstd      │       │
+│   │ Bloom index │  │   format    │  │   B+ tree   │  │  content-   │       │
+│   │             │  │             │  │             │  │  addressed  │       │
+│   └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘       │
+│                                                                             │
+│   Auth: SQLite replicated via Litestream (tiny, ~KB per user)              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
 | Component | Language | Runs | Responsibility |
 |-----------|----------|------|----------------|
-| **libhif-core** | Zig (C ABI) | Anywhere | Algorithms: trees, bloom, changelog, hashing |
-| **Forge** | Any (Elixir, Go, etc.) | Cloud | Stateless API, landing coordination |
+| **libhif-core** | Zig (C ABI) | Anywhere | Algorithms: trees, bloom, changelog, hashing, binary serialization |
+| **Forge Agents** | Any (Elixir, Go, etc.) | Cloud | Stateless API handlers, any agent handles any request |
 | **hif CLI** | Zig | Local | User/agent interface |
 | **hif-fs** | Zig | Local | Virtual filesystem (Phase 2) |
-| **S3** | - | Cloud | All hif data (sessions, trees, blobs) |
+| **S3** | - | Cloud | Source of truth: landing log, sessions, trees, blobs |
 | **SQLite** | - | Forge | Auth only (users, tokens, permissions) |
 
-### Why This Split?
+### Why This Architecture?
 
-**libhif-core exists because:**
-- Algorithms are complex (prolly trees, segmented changelog)
-- Getting them right is hard (edge cases, correctness)
-- Performance matters (hot path operations)
-- Write once, use in any language
+**Object storage-first (like Turbopuffer):**
+- S3 is the source of truth, not a cold tier
+- Data "inflates" from S3 → SSD → RAM as needed
+- Inactive projects cost nearly nothing ($0.023/GB/month)
+- 11 nines durability, no backups needed
+- Strong consistency since 2020
 
-**Forge is stateless because:**
-- All state lives in S3 (infinitely scalable)
-- Horizontal scaling is trivial (just add nodes)
-- No database clustering, no Raft, no complexity
-- Can run on Lambda/Fly.io (scale to zero)
+**Stateless agents (like WarpStream):**
+- No leader election, no partitioning, no Raft
+- Any agent can handle any request
+- Auto-scale based on CPU, scale to zero when idle
+- Agent failure is a non-event (just restart)
+- Trivial to deploy (single binary)
 
-**S3 for hif data because:**
-- Blobs are immutable (content-addressed)
-- Sessions are append-mostly
-- Infinitely scalable, $0.023/GB/month
-- Strong consistency (since 2020)
-- 11 nines durability
+**S3 conditional writes (no coordinator):**
+- Landing uses `if-match` headers for optimistic concurrency
+- S3 provides atomic compare-and-swap
+- No single coordinator bottleneck
+- Multiple landings can race; S3 picks the winner
+- Failed landings retry with backoff
 
-**SQLite + Litestream for auth because:**
-- Auth data is small (~KB per user)
-- Simple relational queries (users, permissions)
-- Litestream replicates to S3 continuously
-- No vendor lock-in, fully open source
-- Can migrate to Postgres/Turso if needed later
+**Binary everywhere (not JSON):**
+- All data structures serialize to compact binary
+- libhif-core handles all serialization
+- Trees, blooms, sessions: all binary
+- Fast to parse, small on disk
+- Zero-copy where possible
 
-**Client is Zig because:**
-- Single binary, no runtime
-- Low-level control for NFS
-- Reuses libhif-core natively (no FFI overhead)
-- Fast startup for CLI
+**Bloom filter rollups (O(log n) conflict detection):**
+- Hierarchical bloom filters cover ranges of landings
+- Check conflict with O(log n) bloom lookups
+- Not O(n) scan of all landed sessions
+- Enables 100k+ landings/day
 
 ---
 
@@ -442,73 +451,101 @@ Resolve with: hif session resolve
 
 ## Forge Architecture
 
-The forge is stateless compute. All state lives in S3.
+The forge is stateless compute. All state lives in S3. This is inspired by:
+- [Turbopuffer](https://turbopuffer.com/docs/architecture): object storage-first vector DB
+- [WarpStream](https://docs.warpstream.com/warpstream/overview/architecture): diskless Kafka with stateless agents
+- [SlateDB](https://slatedb.io/): LSM tree on object storage
 
-### S3 Storage Structure
+### S3 Storage Structure (Binary, Not JSON)
 
-All hif data (sessions, trees, blobs) is stored in S3:
+All hif data is stored in S3 using compact binary formats:
 
 ```
 s3://hif-{org}/
 └── projects/
     └── {project_id}/
         │
-        ├── meta.json                    # Project metadata
-        │   {
-        │     "id": "proj_abc123",
-        │     "name": "myapp",
-        │     "created_at": "2024-01-01T00:00:00Z"
-        │   }
+        ├── head                         # Current head (48 bytes, binary)
+        │   [8 bytes: position (u64)]
+        │   [32 bytes: tree_hash]
+        │   [8 bytes: hlc_updated]
         │
-        ├── head.json                    # Current head position + tree hash
-        │   {
-        │     "position": 847293,
-        │     "tree_hash": "abc123...",
-        │     "updated_at": "2024-01-15T10:30:00Z"
-        │   }
+        ├── landing-log/                 # Append-only landing log
+        │   │
+        │   ├── 00000000.log             # Positions 0-999 (binary, ~100KB each)
+        │   ├── 00001000.log             # Positions 1000-1999
+        │   ├── ...
+        │   │
+        │   └── bloom-index/             # Hierarchical bloom rollups
+        │       ├── level-0/             # Individual landings (already in .log)
+        │       ├── level-1/             # Bloom of 100 landings merged
+        │       │   ├── 00000000.bloom
+        │       │   ├── 00000100.bloom
+        │       │   └── ...
+        │       ├── level-2/             # Bloom of 10,000 landings merged
+        │       │   ├── 00000000.bloom
+        │       │   └── ...
+        │       └── level-3/             # Bloom of 1M landings merged
+        │           └── 00000000.bloom
         │
         ├── sessions/
-        │   └── {session_id}.json        # Complete session state
-        │       {
-        │         "id": "ses_7f3a2b1c",
-        │         "goal": "Add authentication",
-        │         "owner_id": "user_xyz",
-        │         "state": "open",
-        │         "base_position": 847290,
-        │         "operations": [
-        │           {"seq": 1, "op": "write", "path": "src/auth.ts", "hash": "..."},
-        │           {"seq": 2, "op": "write", "path": "src/login.ts", "hash": "..."}
-        │         ],
-        │         "decisions": ["Using JWT for auth"],
-        │         "conversation": [
-        │           {"role": "human", "content": "Add login"},
-        │           {"role": "agent", "content": "I'll use JWT"}
-        │         ],
-        │         "bloom_filter": "base64...",
-        │         "landed_position": null,
-        │         "hlc_created": "...",
-        │         "hlc_updated": "..."
-        │       }
-        │
-        ├── landed/
-        │   └── {position}.json          # Landed session summary (sparse)
-        │       {
-        │         "session_id": "ses_7f3a2b1c",
-        │         "tree_hash": "def456...",
-        │         "paths": ["src/auth.ts", "src/login.ts"],
-        │         "bloom_filter": "base64..."
-        │       }
+        │   └── {session_id}.bin         # Complete session state (binary)
+        │       [Header: 64 bytes]
+        │       [Operations: variable]
+        │       [Bloom filter: variable]
+        │       [Decisions: variable]
+        │       [Conversation: variable]
         │
         ├── trees/
-        │   └── {hash}.json              # Serialized tree (content-addressed)
-        │
-        ├── blobs/
         │   └── {hash[0:2]}/
-        │       └── {hash}               # Raw blob content (zstd compressed)
+        │       └── {hash}.bin           # Serialized B+ tree (binary)
         │
-        └── indexes/                     # Optional, for faster queries
-            ├── sessions_by_owner.json   # owner_id → [session_ids]
-            └── paths.json               # path → [positions] for blame
+        └── blobs/
+            └── {hash[0:2]}/
+                └── {hash}               # Raw blob (zstd compressed)
+```
+
+### Binary Formats
+
+**Head (48 bytes):**
+```
+┌────────────────────────────────────────────────────────┐
+│  position (u64)  │  tree_hash (32 bytes)  │  hlc (8)  │
+└────────────────────────────────────────────────────────┘
+```
+
+**Landing Log Entry (~200 bytes average):**
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Header (40 bytes)                                                    │
+│   position (u64) | session_id (16 bytes) | tree_hash_delta (varies) │
+│   prev_position (u64)                                                │
+├─────────────────────────────────────────────────────────────────────┤
+│ Bloom Filter (64-512 bytes depending on paths touched)              │
+├─────────────────────────────────────────────────────────────────────┤
+│ Paths (variable, deduplicated via tree diff)                        │
+│   count (u16) | [path_len (u16) | path_bytes]...                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Session (binary, variable size):**
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Header (64 bytes)                                                    │
+│   magic (4) | version (4) | id (16) | state (1) | base_pos (8)      │
+│   owner_id (16) | hlc_created (8) | hlc_updated (8) | ...           │
+├─────────────────────────────────────────────────────────────────────┤
+│ Goal (length-prefixed UTF-8)                                        │
+├─────────────────────────────────────────────────────────────────────┤
+│ Operations (count + entries)                                         │
+│   count (u32) | [op_type (1) | path_len (u16) | path | hash (32)]   │
+├─────────────────────────────────────────────────────────────────────┤
+│ Bloom Filter (serialized)                                           │
+├─────────────────────────────────────────────────────────────────────┤
+│ Decisions (count + length-prefixed strings)                         │
+├─────────────────────────────────────────────────────────────────────┤
+│ Conversation (count + role + length-prefixed strings)               │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Auth Database (SQLite)
@@ -548,45 +585,127 @@ CREATE TABLE permissions (
 
 This database stays tiny (KB per user) and is replicated to S3 every second.
 
-### Landing Coordinator
+### Coordinator-Free Landing (via S3 Conditional Writes)
 
-The only piece that needs serialization is landing. A simple coordinator handles this:
+Unlike traditional VCS that needs a coordinator for serialization, hif uses
+[S3 conditional writes](https://aws.amazon.com/about-aws/whats-new/2024/08/amazon-s3-conditional-writes/)
+to achieve atomic landing without coordination.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Landing Coordinator                           │
+│                   Landing Protocol (per agent)                   │
 │                                                                 │
-│   In-memory:                                                    │
-│     current_position: 847293                                    │
-│     pending_lands: Queue<LandRequest>                           │
+│  1. Read current head (position N, etag E)                      │
 │                                                                 │
-│   On startup:                                                   │
-│     Read head.json from S3 → current_position                   │
+│  2. Conflict check via bloom rollups:                           │
+│     - Load level-3 bloom (covers 1M landings) if N > 1M         │
+│     - Load level-2 blooms for ranges not in level-3             │
+│     - Load level-1 blooms for recent ranges                     │
+│     - Check intersection with session bloom                     │
+│     - If bloom intersects: load actual paths, verify conflict   │
 │                                                                 │
-│   On land request:                                              │
-│     1. Load session from S3                                     │
-│     2. Load landed/{base+1..current}.json for conflict check    │
-│     3. Check bloom filter intersections                         │
-│     4. If conflict: mark session CONFLICTED, return             │
-│     5. Increment position                                       │
-│     6. Write landed/{position}.json                             │
-│     7. Write new tree to trees/{hash}.json                      │
-│     8. Update head.json                                         │
-│     9. Update session state to "landed"                         │
+│  3. Prepare landing:                                            │
+│     - Compute new tree by applying session operations           │
+│     - Write new tree to trees/{hash}.bin (idempotent)           │
+│     - Write blobs to blobs/{hash} (idempotent)                  │
 │                                                                 │
-│   Stateless restart:                                            │
-│     All state reconstructed from S3                             │
+│  4. Atomic head update:                                         │
+│     - PUT head with If-Match: E                                 │
+│     - If 200 OK: landing succeeded at position N+1              │
+│     - If 412 Precondition Failed: someone else landed first     │
+│       → Retry from step 1 with exponential backoff              │
+│                                                                 │
+│  5. Append to landing log (async, eventually consistent):       │
+│     - Append entry to current log segment                       │
+│     - Update bloom rollups (background job)                     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-For higher throughput, partition by path prefix:
-```
-src/auth/*     → coordinator A
-src/payments/* → coordinator B
+**Why this works:**
+- S3 `If-Match` provides atomic compare-and-swap
+- Head file is tiny (48 bytes), so contention is low
+- Trees and blobs are content-addressed (write is idempotent)
+- Failed landings just retry (no corruption possible)
+- Bloom rollups are eventually consistent (safe because they only cause false positives, not false negatives)
 
-Non-overlapping paths land in parallel.
+**Throughput analysis:**
+- Assume 100ms per landing attempt (S3 roundtrip)
+- With 10% contention rate: ~90% succeed first try
+- With exponential backoff: avg 1.1 attempts per landing
+- Theoretical max: ~1000 landings/second (S3 limit)
+- Practical: 100k landings/day easily achievable
+
+**For extreme scale (>100k landings/day):**
 ```
+Partition by path prefix using separate head files:
+
+head/src-auth          → landings touching src/auth/*
+head/src-payments      → landings touching src/payments/*
+head/_default          → cross-cutting or unpartitioned
+
+Cross-partition landings use 2-phase protocol:
+1. Lock all affected partitions (via conditional writes)
+2. Commit all partitions
+3. On failure: release locks, retry
+
+Most landings (~95%) are single-partition.
+```
+
+### Bloom Filter Rollups (O(log n) Conflict Detection)
+
+Inspired by [hierarchical bloom filters](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-023-02971-4),
+hif uses a multi-level bloom filter index for fast conflict detection.
+
+```
+Position:  0    100   200   ...  10000  ...  1000000
+
+Level 0:   Each landing has its own bloom (in landing log)
+           │     │     │          │           │
+
+Level 1:   ├─────┴─────┤          │           │
+           Bloom of 100 landings merged       │
+           (one file per 100 positions)       │
+
+Level 2:   ├──────────────────────┴───────────┤
+           Bloom of 10,000 landings merged
+           (one file per 10,000 positions)
+
+Level 3:   ├──────────────────────────────────┴─────────────
+           Bloom of 1,000,000 landings merged
+           (one file per 1M positions)
+```
+
+**Conflict check algorithm:**
+```
+function hasConflict(session, basePosition, currentPosition):
+    // Start from highest level, work down
+    for level in [3, 2, 1, 0]:
+        for each bloom at this level covering [basePosition, currentPosition]:
+            if bloom.intersects(session.bloom):
+                if level == 0:
+                    // At finest granularity, check actual paths
+                    return checkActualConflict(session, landing)
+                else:
+                    // Descend to finer granularity for this range
+                    continue to next level for this range
+
+    return false  // No conflict
+```
+
+**Complexity:**
+- Without rollups: O(n) where n = currentPosition - basePosition
+- With rollups: O(log n) bloom checks
+- For 1M landings since base: ~4 bloom checks instead of 1M
+
+**Bloom parameters:**
+- Each bloom: 1KB, 0.1% false positive rate for 100 paths
+- Level 1 (merged 100): 2KB, ~1% effective FP rate
+- Level 2 (merged 10K): 4KB, ~5% effective FP rate
+- Level 3 (merged 1M): 8KB, ~10% effective FP rate
+
+False positives just mean we check actual paths (cheap).
+False negatives are impossible (bloom filter property).
 
 ### Blob Format
 
@@ -767,72 +886,113 @@ hif watch --session <id>          # Watch specific session
 
 ## Concurrency at Scale
 
-### Target Numbers
+### Target Numbers (Meta/Shopify Scale)
 
-| Metric | Target |
-|--------|--------|
-| Files per project | 100M+ |
-| Landings per day | 100,000+ |
-| Concurrent sessions | 10,000+ |
-| Concurrent agents | 1,000+ |
-| Queries per second | 100,000+ |
+| Metric | Target | Notes |
+|--------|--------|-------|
+| Files per project | 1B+ | Google Piper has 1B+ files |
+| Landings per day | 500,000+ | Google does 40k commits/day |
+| Concurrent sessions | 100,000+ | Many agents working in parallel |
+| Concurrent agents | 10,000+ | Hundreds per large project |
+| Queries per second | 1,000,000+ | Reads via CDN |
 
-### How We Handle It
+### How We Achieve It
 
-**1. S3 Scales Infinitely**
+**1. Object Storage-First (like Turbopuffer)**
 ```
-All hif data lives in S3:
-  - No database sharding needed
-  - No connection pool limits
-  - Automatic replication and durability
-  - Pay only for what you use
+S3 is the source of truth, not a tier:
+  - Infinite capacity ($0.023/GB/month)
+  - 11 nines durability
+  - Strong consistency (since 2020)
+  - No database to shard or replicate
+  - Inactive projects cost nearly nothing
+
+Data inflates: S3 → SSD → RAM as needed
+  - Cold query: ~400ms (4 S3 roundtrips)
+  - Warm query: ~10ms (SSD cache)
+  - Hot query: <1ms (RAM cache)
 ```
 
-**2. Stateless API Servers**
+**2. Stateless Agents (like WarpStream)**
 ```
-Forge API servers are stateless:
-  - Horizontal scaling (just add nodes)
-  - Scale to zero when idle
-  - Run on Lambda/Fly.io/Cloud Run
+Any agent can handle any request:
+  - No leader election, no partitioning
   - No state to replicate or sync
+  - Agent failure is a non-event
+  - Auto-scale based on CPU
+  - Scale to zero when idle
+
+Add capacity: just start more agents
+Remove capacity: just stop agents
 ```
 
-**3. Partitioned Landing**
+**3. Coordinator-Free Landing (S3 Conditional Writes)**
 ```
-Sessions touching disjoint paths land in parallel:
-  src/auth/*     → coordinator A
-  src/payments/* → coordinator B
+No single coordinator bottleneck:
+  - S3 If-Match provides atomic CAS
+  - Multiple agents can race to land
+  - S3 picks the winner
+  - Losers retry with backoff
+  - ~1000 landings/second theoretical max
 
-Only cross-partition sessions serialize.
-Single coordinator handles 1000s of landings/day.
-```
-
-**4. Bloom Filter Fast Path**
-```
-Conflict check:
-  1. Load bloom filters from landed/*.json
-  2. AND with session bloom filter
-  3. If zero bits: no conflict (guaranteed)
-  4. If non-zero: check actual paths (rare)
-
-99% of landings take fast path.
+For extreme scale: partition by path prefix
+  - 95% of landings are single-partition
+  - Cross-partition uses 2PC with S3 locks
 ```
 
-**5. Tiered Caching**
+**4. O(log n) Conflict Detection (Bloom Rollups)**
 ```
-Tier 0: Client memory    (KB)   - hot files
-Tier 1: Client disk      (GB)   - working set
-Tier 2: CDN edge         (TB)   - popular blobs
-Tier 3: S3               (PB)   - everything
+Hierarchical bloom filters:
+  - Level 0: Individual landings
+  - Level 1: 100 landings merged
+  - Level 2: 10,000 landings merged
+  - Level 3: 1,000,000 landings merged
+
+Conflict check for 1M landings:
+  - Old way: scan 1M bloom filters
+  - New way: ~4 bloom lookups
+
+False positives: check actual paths (cheap)
+False negatives: impossible (bloom property)
 ```
 
-**6. CDN for Reads**
+**5. Tiered Caching (like Turbopuffer)**
 ```
-Blobs are immutable (content-addressed):
+Tier 0: Client RAM      (MB)    - hot files, <1ms
+Tier 1: Client SSD      (GB)    - working set, ~1ms
+Tier 2: Agent SSD       (GB)    - shared cache, ~10ms
+Tier 3: CDN edge        (TB)    - popular blobs, ~50ms
+Tier 4: S3              (PB)    - everything, ~100ms
+
+Most reads hit tier 0-2, rarely touch S3.
+Cursor uses this pattern: 10M+ namespaces, 95% cost reduction.
+```
+
+**6. CDN for Immutable Data**
+```
+Content-addressed blobs and trees:
   - CloudFront/Cloudflare in front of S3
-  - Infinite cache TTL
+  - Infinite cache TTL (hash = content)
   - Global edge distribution
-  - Most reads never hit S3
+  - Cache invalidation: never needed
+
+Mutable data (head, sessions):
+  - Always read from S3 (strong consistency)
+  - Small (48 bytes for head)
+  - Cached briefly on agents
+```
+
+**7. Binary Everywhere**
+```
+No JSON, all binary formats:
+  - Trees: compact B+ tree serialization
+  - Blooms: raw bit arrays
+  - Sessions: length-prefixed fields
+  - Head: fixed 48 bytes
+
+Parsing: zero-copy where possible
+Size: 10-50x smaller than JSON
+Speed: 100x faster than JSON parse
 ```
 
 ---
@@ -1007,4 +1167,4 @@ How should IDEs integrate?
 
 ---
 
-*This design targets Google/Meta scale while prioritizing agent-first workflows.*
+*This design targets Google/Meta scale (1B+ files, 500k+ landings/day) while prioritizing agent-first workflows. Inspired by [Turbopuffer](https://turbopuffer.com/), [WarpStream](https://www.warpstream.com/), [SlateDB](https://slatedb.io/), and [Calvin](https://cs.yale.edu/homes/thomson/publications/calvin-sigmod12.pdf).*

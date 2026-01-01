@@ -22,6 +22,9 @@ hif is designed for this reality. It takes lessons from [Google's Piper](https:/
 - **Binary everywhere** - no JSON, all binary formats for speed
 - **O(log n) operations** - bloom filter rollups, not linear scans
 - **Coordinator-free landing** - S3 conditional writes, not single process bottleneck
+- **Epoch batching** - batch landings for throughput (like Calvin)
+- **Deterministic simulation** - test decades of failures in hours (like TigerBeetle)
+- **Sparse checkout** - fetch only what you touch (like Scalar/VFSForGit)
 
 ---
 
@@ -707,6 +710,55 @@ function hasConflict(session, basePosition, currentPosition):
 False positives just mean we check actual paths (cheap).
 False negatives are impossible (bloom filter property).
 
+### Epoch Batching (High Throughput Mode)
+
+For extreme throughput (>1000 landings/second), inspired by [Calvin](https://cs.yale.edu/homes/thomson/publications/calvin-sigmod12.pdf)
+and [CockroachDB's parallel commits](https://www.cockroachlabs.com/blog/parallel-commits/):
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Epoch-Based Landing                          │
+│                                                                 │
+│   Time:    |----10ms----|----10ms----|----10ms----|             │
+│   Epoch:        N            N+1          N+2                   │
+│                                                                 │
+│   1. Collect phase (10ms):                                      │
+│      - Agents submit land requests to any forge node            │
+│      - Requests buffered in memory                              │
+│      - No S3 writes yet                                         │
+│                                                                 │
+│   2. Sequence phase (instant):                                  │
+│      - All requests in epoch get deterministic order            │
+│      - Order by: (session_base_position, session_id)            │
+│      - No coordination needed (deterministic)                   │
+│                                                                 │
+│   3. Conflict check phase (parallel):                           │
+│      - Check all pairs within epoch for conflicts               │
+│      - Check against previous epochs via bloom rollups          │
+│      - Mark conflicting sessions                                │
+│                                                                 │
+│   4. Commit phase (single S3 write):                            │
+│      - Write batch of N landings as single log segment          │
+│      - Update head with If-Match                                │
+│      - All non-conflicting sessions land atomically             │
+│                                                                 │
+│   Throughput: 100 landings/epoch × 100 epochs/sec = 10k/sec    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Trade-offs:**
+- Latency: 10-20ms instead of ~100ms (better!)
+- Throughput: 10,000/sec instead of ~10/sec (100x better!)
+- Complexity: Requires epoch coordination between forge nodes
+- Consistency: Slightly relaxed (within-epoch ordering is deterministic but arbitrary)
+
+**When to use:**
+- Default mode: S3 conditional writes (simple, low contention)
+- High-throughput mode: Epoch batching (for >100 landings/sec)
+
+The system can automatically switch based on observed contention rate.
+
 ### Blob Format
 
 ```
@@ -997,6 +1049,116 @@ Speed: 100x faster than JSON parse
 
 ---
 
+## Deterministic Simulation Testing
+
+Inspired by [TigerBeetle](https://tigerbeetle.com/) and [FoundationDB](https://apple.github.io/foundationdb/testing.html),
+hif uses deterministic simulation to test decades of failures in hours.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    VOPR-style Simulator                          │
+│                                                                 │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │                  Simulated Cluster                       │   │
+│   │                                                         │   │
+│   │   ┌─────────┐  ┌─────────┐  ┌─────────┐                │   │
+│   │   │ Agent 1 │  │ Agent 2 │  │ Agent 3 │                │   │
+│   │   └────┬────┘  └────┬────┘  └────┬────┘                │   │
+│   │        │            │            │                      │   │
+│   │   ┌────┴────────────┴────────────┴────┐                │   │
+│   │   │         Simulated S3              │                │   │
+│   │   │   (in-memory, fault-injectable)   │                │   │
+│   │   └───────────────────────────────────┘                │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│   Fault Injection:                                              │
+│   - Network partitions between agents                           │
+│   - S3 request failures (500, 503, timeouts)                   │
+│   - S3 conditional write races                                  │
+│   - Clock skew between agents                                   │
+│   - Agent crashes and restarts                                  │
+│   - Slow S3 responses (latency injection)                       │
+│                                                                 │
+│   Determinism:                                                  │
+│   - Single-threaded execution                                   │
+│   - Controllable clock (tick-based)                             │
+│   - Seeded PRNG for fault injection                             │
+│   - Any failure reproducible by seed                            │
+│                                                                 │
+│   Time dilation:                                                │
+│   - 1 hour simulation = 1 month real-world                     │
+│   - 24/7 on 100 cores = 200 years/day of testing               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**What we verify:**
+- Landing atomicity (all-or-nothing)
+- Conflict detection correctness (no false negatives)
+- Bloom rollup consistency
+- Head never goes backward
+- No data loss under any failure sequence
+- Eventual consistency of landing log
+
+**Implementation:**
+- All I/O abstracted behind interfaces
+- Real mode: actual S3/network/clock
+- Sim mode: in-memory fakes with fault injection
+- Same binary, different runtime configuration
+
+---
+
+## Sparse Checkout (Lazy File Fetching)
+
+Inspired by [Microsoft Scalar](https://github.blog/2022-10-13-the-story-of-scalar/) and
+[VFSForGit](https://github.com/microsoft/VFSForGit), hif only fetches files you actually touch.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Sparse Working Copy                           │
+│                                                                 │
+│   Project: 10M files, 500GB total                               │
+│   Clone time: <1 second (just metadata)                         │
+│   Disk usage: ~10MB (just tree + touched files)                 │
+│                                                                 │
+│   Tree structure (always local):                                │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  src/                                                   │   │
+│   │  ├── auth/                                              │   │
+│   │  │   ├── login.ts     → blob:abc123 (not fetched)      │   │
+│   │  │   └── logout.ts    → blob:def456 (not fetched)      │   │
+│   │  ├── payments/                                          │   │
+│   │  │   └── stripe.ts    → blob:789abc (FETCHED)          │   │
+│   │  └── ...                                                │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│   On file read (cat, edit, IDE open):                           │
+│   1. Check local cache                                          │
+│   2. If miss: fetch blob from forge                             │
+│   3. Cache locally for future reads                             │
+│   4. Return content                                             │
+│                                                                 │
+│   Prefetch hints:                                               │
+│   - IDE opens folder → prefetch visible files                   │
+│   - Build starts → prefetch build inputs                        │
+│   - Agent claims paths → prefetch those paths                   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- Clone 10M file repo in <1 second
+- Disk usage proportional to working set, not repo size
+- Network usage proportional to files touched
+- Agents can work on massive monorepos without full checkout
+
+**Implementation phases:**
+1. Phase 1: Explicit fetch (`hif cat`, `hif edit`)
+2. Phase 2: NFS mount with lazy fetch (hif-fs)
+3. Phase 3: Prefetch heuristics and IDE integration
+
+---
+
 ## Failure Handling
 
 | Failure | Detection | Recovery |
@@ -1006,6 +1168,9 @@ Speed: 100x faster than JSON parse
 | Landing conflict | Bloom/path check | Mark CONFLICTED, agent resolves |
 | Corrupt blob | Hash mismatch | Re-fetch from forge |
 | Corrupt index | Checksum fail | Rebuild from source data |
+| S3 temporary failure | 5xx response | Exponential backoff retry |
+| Landing race | 412 Precondition Failed | Re-read head, retry landing |
+| Bloom rollup stale | Background job lag | Fall back to finer-grained blooms |
 
 ---
 
@@ -1074,57 +1239,80 @@ zig-out/
 - [x] Basic tree (insert, delete, hash)
 - [x] HLC timestamps
 - [x] C API + header
+- [ ] Binary serialization for all types
+- [ ] Bloom filter merge/rollup operations
 
 **hif CLI:**
 - [x] Project/clone/auth command structure
 - [ ] Session start/land/abandon
 - [ ] Local config (~/.hif/)
-- [ ] HTTP client to forge
+- [ ] gRPC client to forge
+- [ ] Tiered cache (RAM → SSD)
 
 **Forge:**
 - [ ] SQLite + Litestream setup
 - [ ] Auth (users, tokens)
-- [ ] S3 storage layer
+- [ ] S3 storage layer (binary formats)
 - [ ] Session CRUD (read/write to S3)
 - [ ] Basic API endpoints
+
+**Testing:**
+- [ ] Deterministic simulation framework
+- [ ] In-memory S3 fake with fault injection
+- [ ] Seeded PRNG for reproducibility
 
 ### Phase 2: Landing
 
 **Forge:**
-- [ ] Landing coordinator
-- [ ] Conflict detection (bloom filters)
+- [ ] S3 conditional writes (If-Match) for landing
+- [ ] Conflict detection via bloom filters
 - [ ] Tree building on land
-- [ ] head.json updates
+- [ ] Binary head file updates
+- [ ] Landing log segments
+
+**libhif-core:**
+- [ ] Bloom filter rollup builder
+- [ ] Hierarchical bloom index queries
 
 **hif CLI:**
 - [ ] session land command
 - [ ] Conflict resolution flow
-- [ ] cat, write, edit, ls
+- [ ] cat, write, edit, ls (sparse checkout)
 
-### Phase 3: Usability
+### Phase 3: Scale
 
-**libhif-core:**
-- [ ] Tree serialization
-- [ ] Segmented changelog
+**Forge:**
+- [ ] Bloom filter rollup background job
+- [ ] Epoch batching mode (high throughput)
+- [ ] Partitioned landing (path-based)
+- [ ] CDN integration for blobs
 
 **hif CLI:**
+- [ ] Prefetch hints
+- [ ] Background blob fetching
 - [ ] log, diff, blame
 - [ ] goto navigation
-- [ ] watch (polling initially)
+- [ ] watch (streaming)
 
 **hif-fs:**
 - [ ] NFS server (read path)
 - [ ] Local cache with LRU
 - [ ] Session overlay (write path)
 - [ ] Mount/unmount
+- [ ] Prefetch on directory open
 
 ### Phase 4: Production
 
 **Forge:**
-- [ ] CDN integration
 - [ ] Rate limiting
 - [ ] Webhooks
-- [ ] Partitioned landing (if needed)
+- [ ] Multi-region replication
+- [ ] Metrics and observability
+
+**Testing:**
+- [ ] Continuous simulation (24/7)
+- [ ] Chaos testing in staging
+- [ ] Jepsen-style linearizability tests
 
 **Operations:**
 - [ ] Monitoring + alerting
@@ -1167,4 +1355,16 @@ How should IDEs integrate?
 
 ---
 
-*This design targets Google/Meta scale (1B+ files, 500k+ landings/day) while prioritizing agent-first workflows. Inspired by [Turbopuffer](https://turbopuffer.com/), [WarpStream](https://www.warpstream.com/), [SlateDB](https://slatedb.io/), and [Calvin](https://cs.yale.edu/homes/thomson/publications/calvin-sigmod12.pdf).*
+*This design targets Google/Meta scale (1B+ files, 500k+ landings/day) while prioritizing agent-first workflows.*
+
+**Inspired by:**
+- [Turbopuffer](https://turbopuffer.com/) - Object storage-first architecture, tiered caching
+- [WarpStream](https://www.warpstream.com/) - Stateless agents, diskless streaming
+- [SlateDB](https://slatedb.io/) - LSM trees on object storage
+- [Calvin](https://cs.yale.edu/homes/thomson/publications/calvin-sigmod12.pdf) - Deterministic transaction ordering
+- [TigerBeetle](https://tigerbeetle.com/) - Deterministic simulation testing
+- [FoundationDB](https://www.foundationdb.org/) - Simulation testing, unbundled architecture
+- [CockroachDB](https://www.cockroachlabs.com/blog/parallel-commits/) - Parallel commits, transaction pipelining
+- [Neon](https://neon.tech/) - Postgres storage disaggregation
+- [Microsoft Scalar](https://github.blog/2022-10-13-the-story-of-scalar/) - Sparse checkout for massive repos
+- [Google Piper](https://cacm.acm.org/research/why-google-stores-billions-of-lines-of-code-in-a-single-repository/) - Monorepo at billion-file scale

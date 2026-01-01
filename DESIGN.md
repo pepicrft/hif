@@ -1,6 +1,6 @@
 # hif - Design
 
-A version control system for an agent-first world, designed for Google/Meta scale.
+A version control system for an agent-first world, designed for scale.
 
 ## Philosophy
 
@@ -17,7 +17,7 @@ hif is designed for this reality. It takes lessons from [Google's Piper/CitC](ht
 
 - **Forge-first** - the server is the source of truth, not local disk
 - **Agent-native** - sessions capture goal, reasoning, and changes together
-- **Infinite scale** - billions of files, millions of commits, thousands of concurrent agents
+- **S3-first storage** - object storage scales infinitely, no database to manage
 - **Lazy everything** - fetch only what you need, when you need it
 - **Operations scale with your work**, not project size
 
@@ -29,43 +29,56 @@ hif has three components that work together:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                                FORGE                                         │
-│                      (Elixir, Go, Rust, or any language)                    │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      libhif-core (Zig → C ABI)                      │   │
-│  │                                                                     │   │
-│  │   Prolly Trees · Bloom Filters · Segmented Changelog · HLC · Hash  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                   │ FFI                                     │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      Forge Application                               │   │
-│  │                                                                     │   │
-│  │   CockroachDB · S3 · Landing Queue · gRPC Server · Auth · Webhooks │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│                               gRPC API                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    │ TLS + mTLS
-                                    │
-┌─────────────────────────────────────────────────────────────────────────────┐
 │                               CLIENT (Zig)                                   │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │                      libhif-core (native Zig)                       │   │
-│  │                                                                     │   │
-│  │   Same algorithms, no FFI overhead on client                        │   │
+│  │   Trees · Bloom Filters · Segmented Changelog · HLC · Hash          │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                   │                                         │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐                  │
 │  │   hif CLI     │  │   hif-fs      │  │  Local Cache  │                  │
 │  │               │  │  (Phase 2)    │  │               │                  │
-│  │ session start │  │               │  │  Blob LRU     │                  │
-│  │ session land  │  │  NFS daemon   │  │  Tree cache   │                  │
-│  │ decide, log   │  │  Mount point  │  │  Overlay      │                  │
+│  │ session start │  │  NFS daemon   │  │  Blob LRU     │                  │
+│  │ session land  │  │  Mount point  │  │  Tree cache   │                  │
 │  └───────────────┘  └───────────────┘  └───────────────┘                  │
 └─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ HTTPS
+                                    │
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         FORGE (stateless compute)                            │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      API Servers (Fly.io / Lambda / etc.)           │   │
+│  │                                                                     │   │
+│  │   Auth · Session CRUD · Blob upload/download · Tree operations     │   │
+│  │   Scales horizontally, stateless                                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                   │                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      Landing Coordinator                            │   │
+│  │                                                                     │   │
+│  │   Serializes landings · Conflict detection · Writes to S3          │   │
+│  │   Single process, ~200 lines, stateless restart from S3            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+          ┌─────────────────────────┴─────────────────────────┐
+          │                                                   │
+          ▼                                                   ▼
+┌───────────────────────┐                         ┌───────────────────────┐
+│   SQLite + Litestream │                         │          S3           │
+│                       │                         │                       │
+│   Auth database:      │                         │   All hif data:       │
+│   - Users             │                         │   - Sessions          │
+│   - Tokens            │                         │   - Trees             │
+│   - Permissions       │                         │   - Blobs             │
+│                       │                         │   - Landed index      │
+│   Replicated to S3    │                         │                       │
+│   ~KB per user        │                         │   Infinitely scalable │
+└───────────────────────┘                         └───────────────────────┘
 ```
 
 ### Component Responsibilities
@@ -73,9 +86,11 @@ hif has three components that work together:
 | Component | Language | Runs | Responsibility |
 |-----------|----------|------|----------------|
 | **libhif-core** | Zig (C ABI) | Anywhere | Algorithms: trees, bloom, changelog, hashing |
-| **Forge** | Any (Elixir, Go, etc.) | Cloud | Source of truth, scaling, consensus |
+| **Forge** | Any (Elixir, Go, etc.) | Cloud | Stateless API, landing coordination |
 | **hif CLI** | Zig | Local | User/agent interface |
 | **hif-fs** | Zig | Local | Virtual filesystem (Phase 2) |
+| **S3** | - | Cloud | All hif data (sessions, trees, blobs) |
+| **SQLite** | - | Forge | Auth only (users, tokens, permissions) |
 
 ### Why This Split?
 
@@ -85,11 +100,25 @@ hif has three components that work together:
 - Performance matters (hot path operations)
 - Write once, use in any language
 
-**Forge is separate because:**
-- Different deployment (cloud vs local)
-- Different language strengths (Elixir for concurrency, etc.)
-- Teams can work in parallel
-- Can have multiple forge implementations
+**Forge is stateless because:**
+- All state lives in S3 (infinitely scalable)
+- Horizontal scaling is trivial (just add nodes)
+- No database clustering, no Raft, no complexity
+- Can run on Lambda/Fly.io (scale to zero)
+
+**S3 for hif data because:**
+- Blobs are immutable (content-addressed)
+- Sessions are append-mostly
+- Infinitely scalable, $0.023/GB/month
+- Strong consistency (since 2020)
+- 11 nines durability
+
+**SQLite + Litestream for auth because:**
+- Auth data is small (~KB per user)
+- Simple relational queries (users, permissions)
+- Litestream replicates to S3 continuously
+- No vendor lock-in, fully open source
+- Can migrate to Postgres/Turso if needed later
 
 **Client is Zig because:**
 - Single binary, no runtime
@@ -413,140 +442,156 @@ Resolve with: hif session resolve
 
 ## Forge Architecture
 
-The forge is the source of truth. Everything else is cache.
+The forge is stateless compute. All state lives in S3.
 
-### Components
+### S3 Storage Structure
+
+All hif data (sessions, trees, blobs) is stored in S3:
+
+```
+s3://hif-{org}/
+└── projects/
+    └── {project_id}/
+        │
+        ├── meta.json                    # Project metadata
+        │   {
+        │     "id": "proj_abc123",
+        │     "name": "myapp",
+        │     "created_at": "2024-01-01T00:00:00Z"
+        │   }
+        │
+        ├── head.json                    # Current head position + tree hash
+        │   {
+        │     "position": 847293,
+        │     "tree_hash": "abc123...",
+        │     "updated_at": "2024-01-15T10:30:00Z"
+        │   }
+        │
+        ├── sessions/
+        │   └── {session_id}.json        # Complete session state
+        │       {
+        │         "id": "ses_7f3a2b1c",
+        │         "goal": "Add authentication",
+        │         "owner_id": "user_xyz",
+        │         "state": "open",
+        │         "base_position": 847290,
+        │         "operations": [
+        │           {"seq": 1, "op": "write", "path": "src/auth.ts", "hash": "..."},
+        │           {"seq": 2, "op": "write", "path": "src/login.ts", "hash": "..."}
+        │         ],
+        │         "decisions": ["Using JWT for auth"],
+        │         "conversation": [
+        │           {"role": "human", "content": "Add login"},
+        │           {"role": "agent", "content": "I'll use JWT"}
+        │         ],
+        │         "bloom_filter": "base64...",
+        │         "landed_position": null,
+        │         "hlc_created": "...",
+        │         "hlc_updated": "..."
+        │       }
+        │
+        ├── landed/
+        │   └── {position}.json          # Landed session summary (sparse)
+        │       {
+        │         "session_id": "ses_7f3a2b1c",
+        │         "tree_hash": "def456...",
+        │         "paths": ["src/auth.ts", "src/login.ts"],
+        │         "bloom_filter": "base64..."
+        │       }
+        │
+        ├── trees/
+        │   └── {hash}.json              # Serialized tree (content-addressed)
+        │
+        ├── blobs/
+        │   └── {hash[0:2]}/
+        │       └── {hash}               # Raw blob content (zstd compressed)
+        │
+        └── indexes/                     # Optional, for faster queries
+            ├── sessions_by_owner.json   # owner_id → [session_ids]
+            └── paths.json               # path → [positions] for blame
+```
+
+### Auth Database (SQLite)
+
+Only auth-related data lives in SQLite (replicated to S3 via Litestream):
+
+```sql
+-- Users
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,              -- "user_abc123"
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- API tokens
+CREATE TABLE tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    token_hash TEXT NOT NULL,
+    name TEXT,
+    expires_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- Project permissions
+CREATE TABLE permissions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    role TEXT NOT NULL,               -- 'owner', 'write', 'read'
+    created_at TEXT NOT NULL,
+
+    UNIQUE (project_id, user_id)
+);
+```
+
+This database stays tiny (KB per user) and is replicated to S3 every second.
+
+### Landing Coordinator
+
+The only piece that needs serialization is landing. A simple coordinator handles this:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                           FORGE                                  │
+│                    Landing Coordinator                           │
 │                                                                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │  Metadata   │  │   Object    │  │  Landing    │             │
-│  │  Database   │  │   Store     │  │   Queue     │             │
-│  │             │  │             │  │             │             │
-│  │ CockroachDB │  │  S3 + CDN   │  │   Raft      │             │
-│  │ (sessions,  │  │  (blobs)    │  │  consensus  │             │
-│  │  trees,     │  │             │  │             │             │
-│  │  indexes)   │  │             │  │             │             │
-│  └─────────────┘  └─────────────┘  └─────────────┘             │
-│         │               │               │                       │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                     libhif-core                          │  │
-│  │           (via FFI: Zigler, cgo, PyO3, etc.)            │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│         │               │               │                       │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                    gRPC API Server                        │  │
-│  │                                                          │  │
-│  │   StartSession · LandSession · GetTree · GetBlob · ...  │  │
-│  └──────────────────────────────────────────────────────────┘  │
+│   In-memory:                                                    │
+│     current_position: 847293                                    │
+│     pending_lands: Queue<LandRequest>                           │
+│                                                                 │
+│   On startup:                                                   │
+│     Read head.json from S3 → current_position                   │
+│                                                                 │
+│   On land request:                                              │
+│     1. Load session from S3                                     │
+│     2. Load landed/{base+1..current}.json for conflict check    │
+│     3. Check bloom filter intersections                         │
+│     4. If conflict: mark session CONFLICTED, return             │
+│     5. Increment position                                       │
+│     6. Write landed/{position}.json                             │
+│     7. Write new tree to trees/{hash}.json                      │
+│     8. Update head.json                                         │
+│     9. Update session state to "landed"                         │
+│                                                                 │
+│   Stateless restart:                                            │
+│     All state reconstructed from S3                             │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Database Schema
+For higher throughput, partition by path prefix:
+```
+src/auth/*     → coordinator A
+src/payments/* → coordinator B
 
-```sql
--- Sessions
-CREATE TABLE sessions (
-    id UUID PRIMARY KEY,
-    repo_id UUID NOT NULL,
-    goal TEXT NOT NULL,
-    owner_id UUID NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('open', 'landed', 'abandoned', 'conflicted')),
-    base_tree BYTEA NOT NULL,         -- 32 bytes, tree hash
-    current_tree BYTEA,               -- 32 bytes, tree hash
-    landed_position BIGINT,           -- NULL until landed
-    bloom_filter BYTEA,               -- serialized bloom filter
-    hlc_created BYTEA NOT NULL,       -- 16 bytes
-    hlc_updated BYTEA NOT NULL,       -- 16 bytes
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    INDEX idx_repo_state (repo_id, state),
-    INDEX idx_repo_position (repo_id, landed_position),
-    INDEX idx_owner (owner_id)
-);
-
--- Operations (append-only)
-CREATE TABLE operations (
-    id UUID PRIMARY KEY,
-    session_id UUID NOT NULL REFERENCES sessions(id),
-    sequence BIGINT NOT NULL,
-    op_type TEXT NOT NULL CHECK (op_type IN ('write', 'delete', 'rename')),
-    path TEXT NOT NULL,
-    blob_hash BYTEA,                  -- 32 bytes, NULL for delete
-    hlc BYTEA NOT NULL,
-
-    UNIQUE (session_id, sequence)
-);
-
--- Path index (which sessions touched which paths)
-CREATE TABLE path_index (
-    repo_id UUID NOT NULL,
-    path TEXT NOT NULL,
-    session_id UUID NOT NULL,
-    landed_position BIGINT,           -- NULL if not landed yet
-
-    PRIMARY KEY (repo_id, path, session_id),
-    INDEX idx_path_position (repo_id, path, landed_position)
-);
-
--- Trees (content-addressed)
-CREATE TABLE trees (
-    hash BYTEA PRIMARY KEY,           -- 32 bytes
-    repo_id UUID NOT NULL,
-    data BYTEA NOT NULL,              -- serialized tree
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Ancestry (segmented changelog)
-CREATE TABLE ancestry (
-    repo_id UUID NOT NULL,
-    position BIGINT NOT NULL,
-    session_id UUID NOT NULL,
-    parent_positions BIGINT[],
-
-    PRIMARY KEY (repo_id, position)
-);
-
--- Decisions (append-only)
-CREATE TABLE decisions (
-    id UUID PRIMARY KEY,
-    session_id UUID NOT NULL REFERENCES sessions(id),
-    sequence BIGINT NOT NULL,
-    content TEXT NOT NULL,
-    hlc BYTEA NOT NULL,
-
-    UNIQUE (session_id, sequence)
-);
-
--- Conversation (append-only)
-CREATE TABLE conversation (
-    id UUID PRIMARY KEY,
-    session_id UUID NOT NULL REFERENCES sessions(id),
-    sequence BIGINT NOT NULL,
-    role TEXT NOT NULL,               -- 'human' or 'agent'
-    content TEXT NOT NULL,
-    hlc BYTEA NOT NULL,
-
-    UNIQUE (session_id, sequence)
-);
+Non-overlapping paths land in parallel.
 ```
 
-### Object Store
-
-Blobs stored in S3/GCS with CDN:
+### Blob Format
 
 ```
-s3://hif-objects/
-└── {repo_id}/
-    └── blobs/
-        └── {hash_prefix}/
-            └── {hash}
-
-Object format:
+Small files (<4MB):
   [4 bytes: magic "HIFB"]
   [4 bytes: uncompressed size]
   [zstd compressed content]
@@ -555,30 +600,8 @@ Large files (>4MB) are chunked:
   [4 bytes: magic "HIFC"]
   [4 bytes: chunk count]
   [N x 32 bytes: chunk hashes]
-```
 
-### Landing Queue
-
-Processes landings with global ordering:
-
-```
-1. Session submits land request
-   └── Request enters queue with HLC timestamp
-
-2. Raft leader processes in order
-   ├── Acquire position (atomic increment)
-   ├── Load session operations
-   ├── Check conflicts via bloom filter intersection
-   │   ├── If bloom intersects: check actual paths in path_index
-   │   └── If conflict: mark CONFLICTED, return
-   ├── Apply operations to build new tree
-   ├── Store new tree
-   ├── Update session: state=landed, landed_position=N
-   ├── Update path_index
-   ├── Update ancestry
-   └── Commit transaction
-
-3. Notify watchers via pub/sub
+  Each chunk stored separately as a blob.
 ```
 
 ### gRPC API
@@ -756,45 +779,60 @@ hif watch --session <id>          # Watch specific session
 
 ### How We Handle It
 
-**1. Sharded Metadata**
+**1. S3 Scales Infinitely**
 ```
-repo_id → consistent hash → shard 0-255
-Each shard is a CockroachDB range
-Horizontal scaling by adding nodes
+All hif data lives in S3:
+  - No database sharding needed
+  - No connection pool limits
+  - Automatic replication and durability
+  - Pay only for what you use
 ```
 
-**2. Partitioned Landing**
+**2. Stateless API Servers**
+```
+Forge API servers are stateless:
+  - Horizontal scaling (just add nodes)
+  - Scale to zero when idle
+  - Run on Lambda/Fly.io/Cloud Run
+  - No state to replicate or sync
+```
+
+**3. Partitioned Landing**
 ```
 Sessions touching disjoint paths land in parallel:
-  src/auth/*     → partition 0
-  src/payments/* → partition 1
-Only cross-partition sessions serialize
+  src/auth/*     → coordinator A
+  src/payments/* → coordinator B
+
+Only cross-partition sessions serialize.
+Single coordinator handles 1000s of landings/day.
 ```
 
-**3. Bloom Filter Fast Path**
+**4. Bloom Filter Fast Path**
 ```
 Conflict check:
-  1. AND session bloom filters
-  2. If zero bits: no conflict (guaranteed)
-  3. If non-zero: check path_index (rare)
+  1. Load bloom filters from landed/*.json
+  2. AND with session bloom filter
+  3. If zero bits: no conflict (guaranteed)
+  4. If non-zero: check actual paths (rare)
 
-99% of landings take fast path
+99% of landings take fast path.
 ```
 
-**4. Tiered Caching**
+**5. Tiered Caching**
 ```
 Tier 0: Client memory    (KB)   - hot files
 Tier 1: Client disk      (GB)   - working set
 Tier 2: CDN edge         (TB)   - popular blobs
-Tier 3: Object store     (PB)   - everything
+Tier 3: S3               (PB)   - everything
 ```
 
-**5. Segmented Changelog**
+**6. CDN for Reads**
 ```
-Ancestry query in O(log n):
-  - Sessions grouped into segments of 10,000
-  - Precomputed ancestry bitmaps per segment
-  - Cross-segment: O(log n) lookups
+Blobs are immutable (content-addressed):
+  - CloudFront/Cloudflare in front of S3
+  - Infinite cache TTL
+  - Global edge distribution
+  - Most reads never hit S3
 ```
 
 ---
@@ -868,39 +906,51 @@ zig-out/
 
 ## Implementation Phases
 
-### Phase 1: Foundation (Months 1-3)
+### Phase 1: Foundation
 
 **libhif-core:**
-- [ ] Blake3 hashing
-- [ ] Bloom filters
-- [ ] Basic tree (insert, delete, hash)
-- [ ] HLC timestamps
-- [ ] C API + header generation
+- [x] Blake3 hashing
+- [x] Bloom filters
+- [x] Basic tree (insert, delete, hash)
+- [x] HLC timestamps
+- [x] C API + header
 
 **hif CLI:**
-- [ ] Auth (token-based initially)
-- [ ] session start/land/abandon
-- [ ] decide, converse
+- [x] Project/clone/auth command structure
+- [ ] Session start/land/abandon
+- [ ] Local config (~/.hif/)
+- [ ] HTTP client to forge
+
+**Forge:**
+- [ ] SQLite + Litestream setup
+- [ ] Auth (users, tokens)
+- [ ] S3 storage layer
+- [ ] Session CRUD (read/write to S3)
+- [ ] Basic API endpoints
+
+### Phase 2: Landing
+
+**Forge:**
+- [ ] Landing coordinator
+- [ ] Conflict detection (bloom filters)
+- [ ] Tree building on land
+- [ ] head.json updates
+
+**hif CLI:**
+- [ ] session land command
+- [ ] Conflict resolution flow
 - [ ] cat, write, edit, ls
-- [ ] gRPC client (basic)
 
-**Forge (separate repo):**
-- [ ] Database schema
-- [ ] gRPC server skeleton
-- [ ] Basic session CRUD
-- [ ] S3 blob storage
-
-### Phase 2: Usability (Months 4-6)
+### Phase 3: Usability
 
 **libhif-core:**
-- [ ] Full prolly tree with efficient diff
-- [ ] Segmented changelog
 - [ ] Tree serialization
+- [ ] Segmented changelog
 
 **hif CLI:**
 - [ ] log, diff, blame
 - [ ] goto navigation
-- [ ] watch streaming
+- [ ] watch (polling initially)
 
 **hif-fs:**
 - [ ] NFS server (read path)
@@ -908,30 +958,17 @@ zig-out/
 - [ ] Session overlay (write path)
 - [ ] Mount/unmount
 
-### Phase 3: Scale (Months 7-9)
-
-**libhif-core:**
-- [ ] Delta compression
-- [ ] Pack file format
+### Phase 4: Production
 
 **Forge:**
-- [ ] Raft landing queue
-- [ ] Sharded metadata
 - [ ] CDN integration
-- [ ] Webhooks
-
-**Client:**
-- [ ] Parallel blob fetching
-- [ ] Prefetching
-- [ ] Offline queue
-
-### Phase 4: Production (Months 10-12)
-
-- [ ] Multi-region forge
-- [ ] Disaster recovery
-- [ ] Monitoring + alerting
 - [ ] Rate limiting
-- [ ] Abuse prevention
+- [ ] Webhooks
+- [ ] Partitioned landing (if needed)
+
+**Operations:**
+- [ ] Monitoring + alerting
+- [ ] S3 replication (multi-region)
 - [ ] Git import tool
 
 ---

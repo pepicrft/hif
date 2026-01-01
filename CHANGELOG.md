@@ -1,6 +1,11 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.2.1] - 2026-01-01
+
+### Docs
+
+- Add CLAUDE.md with project conventions ([1cc6c04](https://github.com/pepicrft/hif/commit/1cc6c04488a28a719fa7d934912344f43518ca9b))
 ## [0.2.0] - 2025-12-31
 
 ### Feat
@@ -27,6 +32,7 @@ All notable changes to this project will be documented in this file.
 ### Feat
 
 - Add automated release workflow with git-cliff ([d99af8b](https://github.com/pepicrft/hif/commit/d99af8b6af83b9d430dccb2dce71d1fdc45d43f8))
+[0.2.1]: https://github.com/pepicrft/hif/compare/0.2.0..0.2.1
 [0.2.0]: https://github.com/pepicrft/hif/compare/0.1.3..0.2.0
 [0.1.3]: https://github.com/pepicrft/hif/compare/0.1.2..0.1.3
 [0.1.2]: https://github.com/pepicrft/hif/compare/0.1.1..0.1.2

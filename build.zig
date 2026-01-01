@@ -131,4 +131,28 @@ pub fn build(b: *std.Build) void {
         }),
     });
     test_step.dependOn(&b.addRunArtifact(exe_unit_tests).step);
+
+    // FFI module tests
+    const ffi_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/ffi.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    ffi_tests.linkLibC();
+    test_step.dependOn(&b.addRunArtifact(ffi_tests).step);
+
+    // Integration tests
+    const integration_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "hif", .module = hif_mod },
+            },
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(integration_tests).step);
 }

@@ -24,7 +24,7 @@ pub fn main() !void {
 
     if (matches.subcommandMatches("init")) |_| {
         const result = try hif.initRepo(allocator, ".hif");
-        const stdout = std.fs.File.stdout().deprecatedWriter();
+        const stdout = std.io.getStdOut().writer();
         switch (result) {
             .created => try stdout.writeAll("Initialized empty hif repository in .hif\n"),
             .already_exists => try stdout.writeAll("hif repository already exists in .hif\n"),

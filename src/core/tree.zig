@@ -163,6 +163,10 @@ pub const Tree = struct {
     ///
     /// The hash is computed by hashing all entries in sorted order.
     /// This ensures deterministic hashing regardless of insertion order.
+    ///
+    /// Note: This method caches the computed hash for performance. The cache
+    /// is automatically invalidated when the tree is modified via insert()
+    /// or delete(). This is a mutable operation despite having read semantics.
     pub fn hash(self: *Tree) Hash {
         if (self.cached_hash) |h| {
             return h;

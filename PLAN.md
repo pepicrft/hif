@@ -406,10 +406,12 @@ Single-threaded landing without conflict detection.
 - [x] `include/hif_core.h` - C header with documentation
 - [x] Header sync tests - Verify header matches FFI exports
 - [x] Integration tests - End-to-end workflow tests
-- [ ] Forge skeleton
-- [ ] Basic CLI commands
+- [x] Basic CLI commands (session, decide, converse, write, cat, hash, version)
+- [ ] Forge skeleton (Phase 1.2)
+- [ ] gRPC client in CLI (Phase 1.3)
 
 **Phase 1.1 Complete!**
+**CLI stubs ready - waiting for Forge (Phase 1.2)**
 
 **Next:** Phase 1.2 - Forge Skeleton (separate repo)
 

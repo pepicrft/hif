@@ -1,6 +1,8 @@
 const std = @import("std");
 const yazap = @import("yazap");
 const hif = @import("root.zig");
+const config = @import("cli/config.zig");
+const auth = @import("cli/auth.zig");
 
 const App = yazap.App;
 const Arg = yazap.Arg;
@@ -62,6 +64,24 @@ pub fn main() !void {
     // Version command
     const version_cmd = app.createCommand("version", "Show version information");
     try root.addSubcommand(version_cmd);
+
+    // Auth commands
+    var auth_cmd = app.createCommand("auth", "Manage authentication");
+    
+    const auth_login = app.createCommand("login", "Authenticate with the forge");
+    try auth_cmd.addSubcommand(auth_login);
+    
+    const auth_logout = app.createCommand("logout", "Clear authentication tokens");
+    try auth_cmd.addSubcommand(auth_logout);
+    
+    const auth_status = app.createCommand("status", "Show authentication status");
+    try auth_cmd.addSubcommand(auth_status);
+    
+    var auth_config = app.createCommand("config", "Configure forge URL");
+    try auth_config.addArg(Arg.positional("URL", "Forge URL (e.g., https://micelio.dev)", null));
+    try auth_cmd.addSubcommand(auth_config);
+    
+    try root.addSubcommand(auth_cmd);
 
     const matches = app.parseProcess() catch {
         try app.displayHelp();
@@ -216,6 +236,126 @@ pub fn main() !void {
             try stderr.interface.writeAll("Error: hash required\n");
             try stderr.interface.flush();
         }
+        return;
+    }
+
+    if (matches.subcommandMatches("auth")) |auth_matches| {
+        if (auth_matches.subcommandMatches("login")) |_| {
+            var cfg = try config.load(allocator);
+            
+            // Generate client ID if needed
+            if (cfg.client_id == null) {
+                cfg.client_id = try auth.generateClientId(allocator);
+                try config.save(allocator, cfg);
+            }
+            
+            try stdout.interface.writeAll("Starting device code flow...\n");
+            try stdout.interface.flush();
+            
+            // Start device code flow
+            const device_response = auth.deviceCodeFlow(allocator, cfg.forge_url, cfg.client_id.?) catch |err| {
+                try stderr.interface.print("Failed to start authentication: {}\n", .{err});
+                try stderr.interface.flush();
+                return;
+            };
+            defer allocator.free(device_response.device_code);
+            defer allocator.free(device_response.user_code);
+            defer allocator.free(device_response.verification_uri);
+            
+            try stdout.interface.print("\nVerification URL: {s}\n", .{device_response.verification_uri});
+            try stdout.interface.print("User code: {s}\n\n", .{device_response.user_code});
+            try stdout.interface.writeAll("Please open the URL above and enter the code.\n");
+            try stdout.interface.writeAll("Waiting for authorization...\n");
+            try stdout.interface.flush();
+            
+            // Poll for token
+            const token_response = auth.pollForToken(
+                allocator,
+                cfg.forge_url,
+                device_response.device_code,
+                device_response.interval,
+            ) catch |err| {
+                try stderr.interface.print("Authentication failed: {}\n", .{err});
+                try stderr.interface.flush();
+                return;
+            };
+            defer allocator.free(token_response.access_token);
+            defer if (token_response.refresh_token) |rt| allocator.free(rt);
+            
+            // Save tokens
+            cfg.access_token = token_response.access_token;
+            cfg.refresh_token = token_response.refresh_token;
+            const now = std.time.timestamp();
+            cfg.expires_at = now + token_response.expires_in;
+            
+            try config.save(allocator, cfg);
+            
+            try stdout.interface.writeAll("\n✓ Authentication successful!\n");
+            try stdout.interface.flush();
+            return;
+        }
+        
+        if (auth_matches.subcommandMatches("logout")) |_| {
+            const cfg = config.Config{};
+            try config.save(allocator, cfg);
+            try stdout.interface.writeAll("Logged out successfully.\n");
+            try stdout.interface.flush();
+            return;
+        }
+        
+        if (auth_matches.subcommandMatches("status")) |_| {
+            const cfg = config.load(allocator) catch |err| {
+                if (err == error.FileNotFound) {
+                    try stdout.interface.writeAll("Not authenticated.\n");
+                    try stdout.interface.flush();
+                    return;
+                }
+                return err;
+            };
+            
+            if (cfg.access_token) |_| {
+                try stdout.interface.writeAll("Authenticated\n");
+                try stdout.interface.print("Forge: {s}\n", .{cfg.forge_url});
+                if (cfg.expires_at) |expires| {
+                    const now = std.time.timestamp();
+                    if (expires > now) {
+                        const remaining = expires - now;
+                        try stdout.interface.print("Token expires in: {d}s\n", .{remaining});
+                    } else {
+                        try stdout.interface.writeAll("Token expired (run 'hif auth login' to refresh)\n");
+                    }
+                }
+            } else {
+                try stdout.interface.writeAll("Not authenticated.\n");
+                try stdout.interface.writeAll("Run 'hif auth login' to authenticate.\n");
+            }
+            try stdout.interface.flush();
+            return;
+        }
+        
+        if (auth_matches.subcommandMatches("config")) |config_matches| {
+            if (config_matches.getSingleValue("URL")) |url| {
+                var cfg = try config.load(allocator);
+                cfg.forge_url = url;
+                try config.save(allocator, cfg);
+                try stdout.interface.print("Forge URL set to: {s}\n", .{url});
+                try stdout.interface.flush();
+            } else {
+                const cfg = config.load(allocator) catch config.Config{};
+                try stdout.interface.print("Current forge URL: {s}\n", .{cfg.forge_url});
+                try stdout.interface.writeAll("\nTo change: hif auth config <url>\n");
+                try stdout.interface.flush();
+            }
+            return;
+        }
+        
+        // Default: show auth help
+        try stdout.interface.writeAll("Auth commands:\n");
+        try stdout.interface.writeAll("  login   - Authenticate with the forge\n");
+        try stdout.interface.writeAll("  logout  - Clear authentication tokens\n");
+        try stdout.interface.writeAll("  status  - Show authentication status\n");
+        try stdout.interface.writeAll("  config  - Configure forge URL\n");
+        try stdout.interface.flush();
         return;
     }
 

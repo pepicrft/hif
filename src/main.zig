@@ -242,6 +242,7 @@ pub fn main() !void {
     if (matches.subcommandMatches("auth")) |auth_matches| {
         if (auth_matches.subcommandMatches("login")) |_| {
             var cfg = try config.load(allocator);
+            defer cfg.deinit(allocator);
             
             // Generate client ID if needed
             if (cfg.client_id == null) {
@@ -253,7 +254,7 @@ pub fn main() !void {
             try stdout.interface.flush();
             
             // Start device code flow
-            const device_response = auth.deviceCodeFlow(allocator, cfg.forge_url, cfg.client_id.?) catch |err| {
+            const device_response = auth.deviceCodeFlow(allocator, cfg.getUrl(), cfg.client_id.?) catch |err| {
                 try stderr.interface.print("Failed to start authentication: {}\n", .{err});
                 try stderr.interface.flush();
                 return;
@@ -271,7 +272,7 @@ pub fn main() !void {
             // Poll for token
             const token_response = auth.pollForToken(
                 allocator,
-                cfg.forge_url,
+                cfg.getUrl(),
                 device_response.device_code,
                 device_response.interval,
             ) catch |err| {
@@ -312,10 +313,11 @@ pub fn main() !void {
                 }
                 return err;
             };
+            defer cfg.deinit(allocator);
             
             if (cfg.access_token) |_| {
                 try stdout.interface.writeAll("Authenticated\n");
-                try stdout.interface.print("Forge: {s}\n", .{cfg.forge_url});
+                try stdout.interface.print("Forge: {s}\n", .{cfg.getUrl()});
                 if (cfg.expires_at) |expires| {
                     const now = std.time.timestamp();
                     if (expires > now) {
@@ -336,13 +338,15 @@ pub fn main() !void {
         if (auth_matches.subcommandMatches("config")) |config_matches| {
             if (config_matches.getSingleValue("URL")) |url| {
                 var cfg = try config.load(allocator);
-                cfg.forge_url = url;
+                defer cfg.deinit(allocator);
+                cfg.url = try allocator.dupe(u8, url);
                 try config.save(allocator, cfg);
                 try stdout.interface.print("Forge URL set to: {s}\n", .{url});
                 try stdout.interface.flush();
             } else {
                 const cfg = config.load(allocator) catch config.Config{};
-                try stdout.interface.print("Current forge URL: {s}\n", .{cfg.forge_url});
+                defer cfg.deinit(allocator);
+                try stdout.interface.print("Current forge URL: {s}\n", .{cfg.getUrl()});
                 try stdout.interface.writeAll("\nTo change: hif auth config <url>\n");
                 try stdout.interface.flush();
             }

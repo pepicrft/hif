@@ -27,14 +27,14 @@ pub fn generateClientId(allocator: std.mem.Allocator) ![]u8 {
 
 pub fn deviceCodeFlow(
     allocator: std.mem.Allocator,
-    forge_url: []const u8,
+    url: []const u8,
     client_id: []const u8,
 ) !DeviceCodeResponse {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
     
     // Build URL
-    const url_str = try std.fmt.allocPrint(allocator, "{s}/oauth/device", .{forge_url});
+    const url_str = try std.fmt.allocPrint(allocator, "{s}/oauth/device", .{url});
     defer allocator.free(url_str);
     
     const uri = try std.Uri.parse(url_str);
@@ -82,14 +82,14 @@ pub fn deviceCodeFlow(
 
 pub fn pollForToken(
     allocator: std.mem.Allocator,
-    forge_url: []const u8,
+    url: []const u8,
     device_code: []const u8,
     interval: u32,
 ) !TokenResponse {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
     
-    const url_str = try std.fmt.allocPrint(allocator, "{s}/oauth/token", .{forge_url});
+    const url_str = try std.fmt.allocPrint(allocator, "{s}/oauth/token", .{url});
     defer allocator.free(url_str);
     
     const uri = try std.Uri.parse(url_str);
@@ -159,14 +159,14 @@ pub fn pollForToken(
 
 pub fn refreshAccessToken(
     allocator: std.mem.Allocator,
-    forge_url: []const u8,
+    url: []const u8,
     client_id: []const u8,
     refresh_token: []const u8,
 ) !TokenResponse {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
     
-    const url_str = try std.fmt.allocPrint(allocator, "{s}/oauth/token", .{forge_url});
+    const url_str = try std.fmt.allocPrint(allocator, "{s}/oauth/token", .{url});
     defer allocator.free(url_str);
     
     const uri = try std.Uri.parse(url_str);

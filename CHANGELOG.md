@@ -1,22 +1,11 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
-## [0.3.0] - 2026-01-05
+## [0.2.2] - 2026-01-05
 
-### Feat
+### Chore
 
-- Apply FoundationDB lessons: unbundled architecture and simulation-first ([3eebde4](https://github.com/pepicrft/hif/commit/3eebde4d162284810f282feee6e4d3125d5d05c5))
-- Add epoch batching, simulation testing, and sparse checkout ([daabf43](https://github.com/pepicrft/hif/commit/daabf433c71b2c748bc9be3556420bd1ceb6000d))
-- Redesign architecture for Meta/Shopify scale ([00cc237](https://github.com/pepicrft/hif/commit/00cc237c9e0998c0b35c77d7e08a954233d6b564))
-- Redesign forge architecture: S3-first with SQLite for auth ([6abf7bc](https://github.com/pepicrft/hif/commit/6abf7bcdc8b8239864f8cb7b3d6a2c5a0dd725c2))
-- Remove local init, add forge-first CLI commands ([0442a25](https://github.com/pepicrft/hif/commit/0442a25740bc9298237a78e437f56e9f1e5462b7))
-- Add C header management and verification ([f08d1b2](https://github.com/pepicrft/hif/commit/f08d1b2a4862c2d271c75938e4406d3a583f4244))
-- Add prolly tree implementation ([fc8d6cb](https://github.com/pepicrft/hif/commit/fc8d6cb9f77983780f2a687e39c2b9b0df651496))
-
-### Build
-
-- C bindings included in release for all platforms (libhif)
-
+- Add 0.3.0 changelog entry ([e5b0bb1](https://github.com/pepicrft/hif/commit/e5b0bb100a31fc85c3c74566915950b693883a4a))
 ## [0.2.1] - 2026-01-01
 
 ### Docs
@@ -48,7 +37,7 @@ All notable changes to this project will be documented in this file.
 ### Feat
 
 - Add automated release workflow with git-cliff ([d99af8b](https://github.com/pepicrft/hif/commit/d99af8b6af83b9d430dccb2dce71d1fdc45d43f8))
-[0.3.0]: https://github.com/pepicrft/hif/compare/0.2.1..0.3.0
+[0.2.2]: https://github.com/pepicrft/hif/compare/0.2.1..0.2.2
 [0.2.1]: https://github.com/pepicrft/hif/compare/0.2.0..0.2.1
 [0.2.0]: https://github.com/pepicrft/hif/compare/0.1.3..0.2.0
 [0.1.3]: https://github.com/pepicrft/hif/compare/0.1.2..0.1.3
